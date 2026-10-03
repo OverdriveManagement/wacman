@@ -7,13 +7,26 @@ import cors from "@fastify/cors";
 import { HttpError, runMigrations, ensureBootstrapAdmin } from "@wacman/core";
 import { resolveUser } from "./auth.js";
 import { registerRoutes } from "./routes.js";
+import { registerMcp } from "./mcp.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrationsFolder = process.env.MIGRATIONS_DIR ?? path.resolve(here, "../../../packages/core/drizzle");
 
 export async function buildApp() {
   const app = Fastify({
-    logger: { level: env.isProd ? "info" : "info", redact: ["req.headers.cookie", "req.headers.authorization"] },
+    logger: {
+      level: "info",
+      redact: ["req.headers.cookie", "req.headers.authorization"],
+      serializers: {
+        // les jetons d'accès éventuellement présents dans l'adresse ne sont jamais journalisés
+        req: (r: { method: string; url: string; hostname?: string; ip?: string }) => ({
+          method: r.method,
+          url: r.url.replace(/wac_[A-Za-z0-9_-]+/g, "wac_***"),
+          host: r.hostname,
+          remoteAddress: r.ip,
+        }),
+      },
+    },
     bodyLimit: 2 * 1024 * 1024,
     trustProxy: true,
   });
@@ -42,6 +55,7 @@ export async function buildApp() {
   });
 
   await registerRoutes(app);
+  await registerMcp(app);
   return app;
 }
 

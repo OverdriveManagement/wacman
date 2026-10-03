@@ -38,10 +38,18 @@ import {
   verifyLogin,
   changeOwnPassword,
   toSessionUser,
+  startPasswordReset,
+  completePasswordReset,
+  listApiTokens,
+  createApiToken,
+  revokeApiToken,
+  getDashboard,
+  searchAccount,
+  duplicateCard,
 } from "@wacman/core";
 import { env } from "./env.js";
 import { clearSessionCookie, requireUser, setSessionCookie, signAssistantToken, signSession, throttle } from "./auth.js";
-import { sendLoginCode } from "./mail.js";
+import { sendLoginCode, sendResetCode } from "./mail.js";
 import { buildCardsWorkbook, buildMeetingsWorkbook } from "./exports/xlsx.js";
 import { buildDeck } from "./exports/pptx.js";
 import { runAssistant, listAssistantRuns } from "./assistant/run.js";
@@ -51,7 +59,14 @@ type P = { acc: string; entity: string; id: string; type: string; commentId: str
 async function ctxOf(req: FastifyRequest) {
   const user = requireUser(req);
   const { acc } = req.params as P;
-  return buildCtx(user, acc);
+  return buildCtx(user, acc, false, !!req.readOnlyToken);
+}
+
+/** Opérations réservées à une session ouverte dans le navigateur (pas à un jeton d'accès). */
+function requireSession(req: FastifyRequest) {
+  const user = requireUser(req);
+  if (req.viaToken) throw new HttpError(403, "Action impossible avec un jeton d'accès : connectez-vous à WacMan.");
+  return user;
 }
 
 export async function registerRoutes(app: FastifyInstance) {
@@ -78,6 +93,29 @@ export async function registerRoutes(app: FastifyInstance) {
     return { user: toSessionUser(user) };
   });
 
+  // Mot de passe oublié : envoi d'un code, puis choix d'un nouveau mot de passe
+  app.post("/api/auth/forgot", async (req) => {
+    const b = z.object({ email: z.string().email() }).safeParse(req.body);
+    if (!b.success) throw badRequest("E-mail requis.");
+    throttle(`forgot:${req.ip}`, 6);
+    throttle(`forgot:${b.data.email.toLowerCase()}`, 4);
+    const r = await startPasswordReset(b.data.email);
+    if (r.user && r.code) await sendResetCode(r.user.email, r.user.name, r.code, (m) => req.log.info(m));
+    return { challengeId: r.challengeId, ...(env.devShowOtp && r.code ? { devCode: r.code } : {}) };
+  });
+
+  app.post("/api/auth/reset", async (req) => {
+    const b = z.object({ challengeId: z.string(), code: z.string().min(4).max(10), password: z.string() }).safeParse(req.body);
+    if (!b.success) throw badRequest("Données invalides.");
+    throttle(`reset:${req.ip}`, 20);
+    return completePasswordReset(b.data.challengeId, b.data.code, b.data.password);
+  });
+
+  // Jetons d'accès personnels (API et connecteur Claude)
+  app.get("/api/auth/tokens", async (req) => listApiTokens(requireSession(req)));
+  app.post("/api/auth/tokens", async (req) => createApiToken(requireSession(req), req.body));
+  app.delete("/api/auth/tokens/:id", async (req) => revokeApiToken(requireSession(req), (req.params as P).id));
+
   app.post("/api/auth/logout", async (_req, reply) => {
     clearSessionCookie(reply);
     return { ok: true };
@@ -89,14 +127,14 @@ export async function registerRoutes(app: FastifyInstance) {
   });
 
   app.post("/api/auth/password", async (req) => {
-    const user = requireUser(req);
+    const user = requireSession(req);
     const b = z.object({ current: z.string(), next: z.string() }).safeParse(req.body);
     if (!b.success) throw badRequest("Données invalides.");
     return changeOwnPassword(user, b.data.current, b.data.next);
   });
 
   app.get("/api/auth/assistant-token", async (req) => {
-    const user = requireUser(req);
+    const user = requireSession(req);
     const { db, T } = await import("@wacman/core");
     const { eq } = await import("drizzle-orm");
     const [u] = await db.select().from(T.users).where(eq(T.users.id, user.id));
@@ -148,6 +186,9 @@ export async function registerRoutes(app: FastifyInstance) {
     return listCards(await ctxOf(req), { sprintId: q.sprintId, includeArchived: q.includeArchived === "true" });
   });
   app.post("/api/accounts/:acc/cards/:id/move", async (req) => moveCard(await ctxOf(req), (req.params as P).id, req.body));
+  app.post("/api/accounts/:acc/cards/:id/duplicate", async (req) => duplicateCard(await ctxOf(req), (req.params as P).id));
+  app.get("/api/accounts/:acc/dashboard", async (req) => getDashboard(await ctxOf(req)));
+  app.get("/api/accounts/:acc/search", async (req) => searchAccount(await ctxOf(req), String((req.query as { q?: string }).q ?? "")));
   app.post("/api/accounts/:acc/sprints/switch", async (req) => switchSprint(await ctxOf(req), req.body));
 
   app.get("/api/accounts/:acc/meetings", async (req) => {
@@ -218,7 +259,7 @@ export async function registerRoutes(app: FastifyInstance) {
   // Assistant Claude
   // -------------------------------------------------------------------------
   app.post("/api/accounts/:acc/assistant", async (req, reply) => {
-    const user = requireUser(req);
+    const user = requireSession(req);
     const ctx = await buildCtx(user, (req.params as P).acc, true);
     const b = z
       .object({ prompt: z.string().min(1).max(8000), history: z.array(z.object({ role: z.enum(["user", "assistant"]), content: z.string() })).max(20).optional() })

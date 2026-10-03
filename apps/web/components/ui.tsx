@@ -1,5 +1,7 @@
 "use client";
 
+import { createPortal } from "react-dom";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { onToast } from "@/lib/api";
 import { tone } from "@/lib/format";
@@ -95,8 +97,9 @@ export function Modal({
       document.body.style.overflow = "";
     };
   }, [open, onClose]);
-  if (!open) return null;
-  return (
+  if (!open || typeof document === "undefined") return null;
+  // rendu à la racine du document : un parent avec effet de flou (en-tête) ne décale plus la fenêtre
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 backdrop-blur-[2px] md:items-center md:p-6" onMouseDown={onClose}>
       <div
         role="dialog"
@@ -113,7 +116,8 @@ export function Modal({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line-soft px-5 py-3">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { createHash, randomInt } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "../db.js";
 import * as T from "../schema.js";
@@ -54,7 +54,7 @@ export async function verifyLogin(challengeId: string, code: string) {
   const invalid = new HttpError(401, "Code invalide ou expiré. Recommencez la connexion.");
   if (!/^[0-9a-f-]{36}$/i.test(challengeId)) throw invalid;
   const [ch] = await db.select().from(T.loginChallenges).where(eq(T.loginChallenges.id, challengeId));
-  if (!ch || ch.consumedAt || ch.expiresAt < new Date()) throw invalid;
+  if (!ch || ch.purpose !== "LOGIN" || ch.consumedAt || ch.expiresAt < new Date()) throw invalid;
   const [u] = await db.select().from(T.users).where(eq(T.users.id, ch.userId));
   if (!u || !u.active || ch.attempts >= OTP_MAX_ATTEMPTS) throw invalid;
   if (sha(`${ch.userId}:${code.trim()}`) !== ch.codeHash) {
@@ -64,6 +64,52 @@ export async function verifyLogin(challengeId: string, code: string) {
   await db.update(T.loginChallenges).set({ consumedAt: new Date() }).where(eq(T.loginChallenges.id, ch.id));
   const [user] = await db.update(T.users).set({ lastLoginAt: new Date() }).where(eq(T.users.id, ch.userId)).returning();
   return user;
+}
+
+// ---------------------------------------------------------------------------
+// Mot de passe oublié : code à 6 chiffres envoyé par e-mail, puis nouveau mot de passe
+// ---------------------------------------------------------------------------
+
+/**
+ * Prépare une réinitialisation. Renvoie toujours un identifiant de demande (fictif si l'e-mail est inconnu)
+ * pour ne pas révéler l'existence d'un compte ; le code n'est fourni que pour un utilisateur actif.
+ */
+export async function startPasswordReset(email: string) {
+  const [user] = await db.select().from(T.users).where(eq(T.users.email, email.trim().toLowerCase()));
+  if (!user || !user.active) return { challengeId: randomUUID(), code: null, user: null };
+  await db
+    .update(T.loginChallenges)
+    .set({ consumedAt: new Date() })
+    .where(and(eq(T.loginChallenges.userId, user.id), isNull(T.loginChallenges.consumedAt)));
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const [challenge] = await db
+    .insert(T.loginChallenges)
+    .values({ userId: user.id, purpose: "RESET", codeHash: sha(`reset:${user.id}:${code}`), expiresAt: new Date(Date.now() + OTP_TTL_MIN * 60_000) })
+    .returning();
+  return { challengeId: challenge.id, code, user };
+}
+
+/** Termine la réinitialisation : vérifie le code, change le mot de passe et ferme les sessions ouvertes. */
+export async function completePasswordReset(challengeId: string, code: string, password: string) {
+  const invalid = new HttpError(400, "Code invalide ou expiré. Refaites une demande.");
+  if (!/^[0-9a-f-]{36}$/i.test(challengeId)) throw invalid;
+  const pw = passwordSchema.safeParse(password);
+  if (!pw.success) throw badRequest(`Mot de passe trop faible : ${pw.error.issues.map((i) => i.message).join(", ")}`);
+  const [ch] = await db.select().from(T.loginChallenges).where(eq(T.loginChallenges.id, challengeId));
+  if (!ch || ch.purpose !== "RESET" || ch.consumedAt || ch.expiresAt < new Date() || ch.attempts >= OTP_MAX_ATTEMPTS) throw invalid;
+  if (sha(`reset:${ch.userId}:${code.trim()}`) !== ch.codeHash) {
+    await db.update(T.loginChallenges).set({ attempts: ch.attempts + 1 }).where(eq(T.loginChallenges.id, ch.id));
+    throw new HttpError(400, ch.attempts + 1 >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Refaites une demande." : "Code incorrect.");
+  }
+  const [u] = await db.select().from(T.users).where(eq(T.users.id, ch.userId));
+  if (!u || !u.active) throw invalid;
+  await db.update(T.loginChallenges).set({ consumedAt: new Date() }).where(eq(T.loginChallenges.id, ch.id));
+  await db
+    .update(T.users)
+    .set({ passwordHash: await hashPassword(pw.data), sessionVersion: u.sessionVersion + 1 })
+    .where(eq(T.users.id, u.id));
+  await audit({ user: toSessionUser(u), accountId: null }, "user", u.id, "update", `Mot de passe réinitialisé par e-mail : ${u.name}`);
+  return { ok: true };
 }
 
 export async function changeOwnPassword(user: SessionUser, current: string, next: string) {

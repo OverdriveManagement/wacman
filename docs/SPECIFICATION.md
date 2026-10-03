@@ -4,7 +4,7 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt.
 
-Version courante : **V1** (octobre 2026).
+Version courante : **V1.1** (4 octobre 2026).
 
 ---
 
@@ -26,7 +26,16 @@ Version courante : **V1** (octobre 2026).
 
 Mot de passe : 10 caractères minimum, au moins une lettre et un chiffre. Les tentatives de connexion sont limitées (8 par tranche de 10 minutes et par adresse).
 
-### 2.2 Rôles
+**Mot de passe oublié** (lien sur la page de connexion) : l'utilisateur saisit son e-mail et reçoit un code à 6 chiffres (valable 10 minutes, 5 essais), puis choisit un nouveau mot de passe ; toutes ses sessions ouvertes sont fermées. La réponse est identique que l'e-mail existe ou non, pour ne pas révéler les comptes. Demandes limitées (6 par adresse IP et 4 par e-mail par tranche de 10 minutes).
+
+### 2.2 Jetons d'accès personnels
+Menu utilisateur, « Connecteur Claude et jetons » : chaque utilisateur crée des jetons (nom, durée 30 jours, 90 jours, 1 an ou sans limite, option lecture seule) qui permettent à Claude ou à un script d'agir avec ses droits.
+- Le jeton (préfixe `wac_`) n'est affiché qu'une fois ; seul son hachage est conservé. Liste des jetons actifs avec date de dernière utilisation, révocation immédiate.
+- Un jeton en lecture seule donne les droits de lecteur, même à un administrateur.
+- Un jeton ne permet ni de créer d'autres jetons, ni de changer de mot de passe, ni d'utiliser l'assistant intégré : ces actions demandent une session ouverte dans le navigateur.
+- 20 jetons actifs au plus par utilisateur.
+
+### 2.3 Rôles
 | Rôle | Portée | Droits |
 |---|---|---|
 | Super-administrateur | Tous les comptes | Tout, plus la création de comptes clients, la gestion des utilisateurs, l'import et la sauvegarde complète |
@@ -48,18 +57,28 @@ Un utilisateur peut avoir des rôles différents selon les comptes. Les accès s
 
 Reprise à l'identique, en fonctionnalités, de l'espace Notion « La Poste - PSTNG ».
 
+### 4.0 Tableau de bord
+Premier lien de la section. En un écran :
+- quatre indicateurs : sprint en cours (jours restants et temps écoulé), livrables terminés du sprint, cartes en vigilance ou en alerte (par niveau), échéances dépassées (et nombre à échéance sous 15 jours) ;
+- avancement du sprint : répartition des cartes par statut (barre segmentée) et, par stream, cartes terminées sur le total et nombre d'alertes ;
+- listes cliquables : échéances dépassées, à échéance sous 15 jours, mes cartes en cours (cartes dont je suis porteur, si mon utilisateur est rattaché à ma fiche de l'annuaire) ;
+- risques ouverts par criticité et risques dont l'échéance de traitement est dépassée ;
+- séances : pour chaque type, dernière séance (lien direct) et prochaine séance déjà préparée ;
+- activité récente (12 dernières modifications).
+Les données se rafraîchissent chaque minute.
+
 ### 4.1 Kanban (page d'accueil du compte)
 De haut en bas :
 1. **Bandeau d'introduction** (texte configurable).
 2. **Derniers faits marquants** : ceux de la dernière séance du premier type de séance à faits marquants (Program weekly pour La Poste), en galerie : picto et titre, type, stream, détail.
 3. **Cartes en vigilance ou en alerte** : toutes les cartes non terminées portant un niveau d'alerte, de la plus grave à la moins grave, avec niveau, stream, porteur, échéance (en rouge si dépassée) et alertes / arbitrages. Un clic ouvre la carte.
-4. **Kanban** : colonnes = statuts (À faire, En cours, Standby, Terminé pour La Poste), couloirs = streams marqués « Kanban ». Filtres : sprint (en cours par défaut), porteur, recherche par titre ou référence, vigilance ou alerte uniquement. Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » dans chaque case.
+4. **Kanban** : colonnes = statuts (À faire, En cours, Standby, Terminé pour La Poste), couloirs = streams marqués « Kanban ». Filtres : sprint (en cours par défaut), porteur, recherche par titre ou référence, et boutons « Vigilance ou alerte », « En retard » et « Mes cartes ». Sous le titre, barre d'avancement du sprint (cartes terminées sur le total). Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » dans chaque case.
 5. **Mode d'emploi** (texte configurable, replié).
 
 ### 4.2 Carte (livrable)
 - En-tête : Réf. (numérotation automatique par compte), titre, statut, stream, porteur, sprint.
 - Corps : description, point d'avancement, prochaines étapes, vigilance / alerte, alertes / arbitrages (encadré coloré selon le niveau), échéance.
-- Détails : avancement (%), picto, date de mise à jour, archivage, suppression.
+- Détails : avancement (%), picto, date de mise à jour, duplication (copie de tous les champs sauf commentaires, placée juste après l'originale), archivage, suppression.
 - Commentaires et historique des modifications (qui a changé quoi, avant et après).
 - Règle de contenu (reprise du Notion) : alertes / arbitrages n'est renseigné que pour une carte en vigilance ou en alerte ; sinon les actions vont dans prochaines étapes.
 - Balisage léger accepté dans les textes : **gras**, puces « • » ou « - », liens [texte](https://…).
@@ -80,6 +99,7 @@ La page d'un type de séance liste les séances de la plus récente à la plus a
   - sujets recopiés sans les lignes « Décision : … » (ni ce qui les suit).
 - Modification de la date, suppression d'une séance, édition en place des cellules, commentaires et historique sur chaque élément.
 - Export Excel de toutes les séances du type.
+- Sur la séance dépliée : **Copier le CR** (compte rendu en texte, prêt à coller dans un e-mail : faits marquants, statuts des streams, sujets et arbitrages) et **PDF** (vue d'impression au gabarit Wifirst, à imprimer ou enregistrer en PDF depuis le navigateur).
 
 ### 4.4 Risques & arbitrages
 Liste filtrable (type, stream, éléments clos masqués par défaut), triée par criticité puis échéance. Fiche : sujet, type, criticité, statut, stream, porteur, échéance, instance, description, décision / mitigation, cartes liées, commentaires, historique.
@@ -92,7 +112,10 @@ Liste filtrable (type, stream, éléments clos masqués par défaut), triée par
 ### 4.6 Journal
 Toutes les modifications du compte, filtrables par type d'élément.
 
-### 4.7 Exports
+### 4.7 Recherche globale
+Bouton « Rechercher » de l'en-tête, raccourci Ctrl+K (⌘K sur Mac) ou touche « / ». Recherche insensible à la casse et aux accents dans les cartes (titre et textes, ou numéro de référence : « 12 » ou « #12 »), risques, sujets et faits marquants des séances, streams et annuaire. Navigation au clavier ; un résultat ouvre directement la carte, le risque, la séance concernée ou la page Gouvernance.
+
+### 4.8 Exports
 - **PowerPoint** au gabarit Wifirst (16:9, titres Hind Madurai gras bleu pétrole, corps Inter, palette du deck Program weekly) : couverture ; faits marquants de la séance choisie ; cartes en vigilance ou en alerte ; livrables du sprint, une slide par stream (pastille d'alerte, statut, porteur, échéance, point d'avancement ou alerte) ; statut des streams ; sujets du comité. Les tableaux longs se répartissent sur plusieurs slides sans couper une ligne. Choix du sprint, des sections et de la séance de chaque type.
 - **Excel** : cartes (d'un sprint ou de tous), séances d'un type (un onglet par bloc).
 - **Sauvegarde JSON** complète du compte (super-administrateur), réimportable.
@@ -116,6 +139,15 @@ Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Par
 - Il sait notamment : résumer, rechercher, créer ou mettre à jour des cartes, déplacer une carte, préparer une séance à partir de la précédente, ajouter des faits marquants, statuts ou sujets, gérer les risques, commenter, basculer de sprint.
 - Chaque modification est tracée au journal avec la mention « via l'assistant ». Chaque échange est conservé (demande, réponse, actions, consommation).
 - Modèle par défaut : Claude Sonnet 5.5 (variable ANTHROPIC_MODEL). Facturation à l'usage sur la clé API Anthropic du compte Overdrive Management.
+- Outils supplémentaires en V1.1 : recherche insensible aux accents et lecture des indicateurs du tableau de bord.
+- Fiabilité : une erreur d'affichage dans le panneau n'emporte plus la page (zone isolée, bouton Réessayer) ; la connexion est maintenue pendant les traitements longs.
+
+### 7.1 Connecteur Claude (serveur MCP)
+WacMan expose ses données à Claude hors de l'application (claude.ai, Claude Desktop, Claude Code) par un serveur MCP (Model Context Protocol), avec les mêmes outils que l'assistant intégré, plus `list_accounts`. Chaque outil prend en paramètre le compte client concerné.
+- Branchement : créer un jeton d'accès (2.2), puis ajouter un connecteur personnalisé dans Claude avec l'adresse fournie, ou la commande `claude mcp add` pour Claude Code. Les instructions s'affichent à la création du jeton.
+- Droits : ceux du porteur du jeton sur chaque compte ; un jeton en lecture seule ne voit pas les outils de modification.
+- Traçabilité : chaque modification est inscrite au journal, marquée « via Claude ».
+- Le même jeton donne accès à l'API REST de WacMan (en-tête `Authorization: Bearer`), pour des scripts ou intégrations.
 
 ## 8. Reprise des données Notion
 - Script `tools/notion_to_wacman.py` : convertit l'export des bases Notion en fichier d'import WacMan.
@@ -123,7 +155,12 @@ Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Par
 - V1 (import de développement du 03/10/2026) : 10 streams, 4 sprints, 7 contacts, 29 cartes (la carte vide Réf. 37 est ignorée), 6 séances (2 Program weekly, 2 COPROJ LP, 2 Strategic Committee), 6 faits marquants, 13 statuts de streams (la ligne vide du 25/09 est ignorée), 11 sujets, 18 risques et arbitrages, 10 instances de comitologie.
 - Un nouvel import sera fait juste avant la mise en service.
 
-## 9. Hors périmètre V1
+## 9. Robustesse
+- Une erreur d'affichage dans une page d'un compte est contenue : la navigation reste disponible, avec les boutons Réessayer et Recharger.
+- Les références saisies (statut, niveau d'alerte, type, criticité…) sont contrôlées : identifiant valide, appartenant au compte et pris dans la bonne liste de valeurs.
+- Application installable sur mobile et ordinateur (icône WacMan, ouverture plein écran).
+
+## 10. Hors périmètre
 - Contenu des sections Finance et Provisioning.
 - Connexion SSO Microsoft.
 - Domaine personnalisé.
@@ -142,3 +179,4 @@ Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Par
 | 03/10/2026 | Reprendre le service d'e-mails de turbolife (Resend) ; toujours utiliser des projets distincts de turbolife et Flogger Forge dans Vercel, Railway et Resend | Resend retenu ; projet Railway « wacman » et projet Vercel dédiés |
 | 03/10/2026 | Mise en service et mise en ligne ; dépôt GitHub relié | Dépôt privé OverdriveManagement/wacman ; API déployée sur Railway (Amsterdam) depuis GitHub ; front déployé sur Vercel (Paris) depuis GitHub ; chaque push sur main redéploie les deux |
 | 04/10/2026 | Un prompt sur l'assistant IA fait planter le site | Flux de l'assistant fiabilisé (fin de connexion détectée sur la réponse, maintien de connexion toutes les 15 s, lecture tolérante des événements) ; zones d'erreur isolées (assistant, pages d'un compte, application) avec bouton Réessayer ; contrôle des références renforcé (identifiant valide et valeur de la bonne liste) |
+| 04/10/2026 | Trouver et intégrer de manière autonome d'autres améliorations, sans validation intermédiaire | V1.1 : tableau de bord (4.0), recherche globale Ctrl+K (4.7), filtres « En retard » et « Mes cartes » et barre d'avancement sur le kanban, duplication de carte, compte rendu de séance à copier ou en PDF, mot de passe oublié par code e-mail (2.1), jetons d'accès personnels (2.2), connecteur Claude MCP et API REST par jeton (7.1), application installable, correctifs (fenêtres décalées sous l'en-tête, lien direct qui rouvrait la carte d'origine après duplication) |

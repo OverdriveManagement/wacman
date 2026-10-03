@@ -46,3 +46,7 @@ export const IconMenu = (p: P) => base(["M4 6h16", "M4 12h16", "M4 18h16"], p);
 export const IconAlert = (p: P) => base(["M12 3l10 18H2z", "M12 10v4", "M12 17h.01"], p);
 export const IconEdit = (p: P) => base(["M12 20h9", "M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"], p);
 export const IconArrowRight = (p: P) => base(["M5 12h14", "M13 6l6 6-6 6"], p);
+export const IconSearch = (p: P) => base(["M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z", "M21 21l-4.3-4.3"], p);
+export const IconGauge = (p: P) => base(["M12 21a9 9 0 1 1 9-9", "M12 12l4-4", "M3 12h2", "M12 3v2", "M19 12h2"], p);
+export const IconKey = (p: P) => base(["M15 7a4 4 0 1 1-3.9 4.9L3 20v-3h3v-3h3l2.1-2.1A4 4 0 0 1 15 7z", "M16 8h.01"], p);
+export const IconPrint = (p: P) => base(["M6 9V3h12v6", "M6 18H4v-7h16v7h-2", "M6 14h12v7H6z"], p);

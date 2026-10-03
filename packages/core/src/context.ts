@@ -40,7 +40,7 @@ export function assertRole(ctx: Ctx, min: Role) {
 }
 
 /** Construit le contexte d'un utilisateur sur un compte (par id ou slug). */
-export async function buildCtx(user: SessionUser, accountIdOrSlug: string, viaAssistant = false): Promise<Ctx> {
+export async function buildCtx(user: SessionUser, accountIdOrSlug: string, viaAssistant = false, readOnly = false): Promise<Ctx> {
   const isUuid = /^[0-9a-f-]{36}$/i.test(accountIdOrSlug);
   const [account] = await db
     .select({ id: accounts.id })
@@ -48,6 +48,18 @@ export async function buildCtx(user: SessionUser, accountIdOrSlug: string, viaAs
     .where(isUuid ? or(eq(accounts.id, accountIdOrSlug), eq(accounts.slug, accountIdOrSlug)) : eq(accounts.slug, accountIdOrSlug))
     .limit(1);
   if (!account) throw notFound("Compte client introuvable.");
+  if (readOnly) {
+    // jeton en lecture seule : droits de lecteur, même pour un administrateur
+    if (!user.isSuperAdmin) {
+      const [m0] = await db
+        .select({ role: memberships.role })
+        .from(memberships)
+        .where(and(eq(memberships.userId, user.id), eq(memberships.accountId, account.id)))
+        .limit(1);
+      if (!m0) throw forbidden("Vous n'avez pas accès à ce compte client.");
+    }
+    return { user: { ...user, isSuperAdmin: false }, accountId: account.id, role: "VIEWER", viaAssistant };
+  }
   if (user.isSuperAdmin) return { user, accountId: account.id, role: "ADMIN", viaAssistant };
   const [m] = await db
     .select({ role: memberships.role })

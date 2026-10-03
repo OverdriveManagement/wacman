@@ -8,7 +8,10 @@ import { Logo, ThemeToggle } from "@/components/Brand";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const [step, setStep] = useState<"password" | "code">("password");
+  const [step, setStep] = useState<"password" | "code" | "forgot" | "reset">("password");
+  const [reset, setReset] = useState<{ challengeId: string; devCode?: string } | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [info, setInfo] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -51,6 +54,48 @@ function LoginForm() {
     }
   };
 
+  const submitForgot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const r = await api<{ challengeId: string; devCode?: string }>("/api/auth/forgot", { method: "POST", json: { email }, silent: true });
+      setReset(r);
+      setCode("");
+      setNewPassword("");
+      setStep("reset");
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reset) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api("/api/auth/reset", { method: "POST", json: { challengeId: reset.challengeId, code, password: newPassword }, silent: true });
+      setInfo("Mot de passe modifié. Connectez-vous avec le nouveau mot de passe.");
+      setPassword("");
+      setCode("");
+      setStep("password");
+    } catch (err) {
+      setError((err as Error).message);
+      if ((err as Error).message.includes("Refaites")) setStep("forgot");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const go = (s: typeof step) => {
+    setError("");
+    setInfo("");
+    setStep(s);
+  };
+
   return (
     <div className="card w-full max-w-sm p-6 md:p-8">
       <div className="mb-6">
@@ -67,11 +112,64 @@ function LoginForm() {
             <span className="label">Mot de passe</span>
             <input className="input" type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
+          {info && <p className="text-sm text-teal">{info}</p>}
           {error && <p className="text-sm text-red">{error}</p>}
           <button className="btn btn-primary w-full" disabled={busy}>
             {busy ? "Vérification…" : "Continuer"}
           </button>
-          <p className="text-xs text-muted">Un code de vérification vous sera envoyé par e-mail.</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted">Un code de vérification vous sera envoyé par e-mail.</p>
+            <button type="button" className="shrink-0 text-xs font-semibold text-accent hover:underline" onClick={() => go("forgot")}>
+              Mot de passe oublié ?
+            </button>
+          </div>
+        </form>
+      ) : step === "forgot" ? (
+        <form onSubmit={submitForgot} className="space-y-4">
+          <h1 className="font-display text-2xl font-bold text-ink">Mot de passe oublié</h1>
+          <p className="text-sm text-ink-2">Indiquez votre e-mail : si un compte existe, vous recevrez un code pour choisir un nouveau mot de passe.</p>
+          <label className="block">
+            <span className="label">E-mail</span>
+            <input className="input" type="email" autoComplete="username" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
+          </label>
+          {error && <p className="text-sm text-red">{error}</p>}
+          <button className="btn btn-primary w-full" disabled={busy}>
+            {busy ? "Envoi…" : "Recevoir un code"}
+          </button>
+          <button type="button" className="btn btn-ghost w-full" onClick={() => go("password")}>
+            Retour à la connexion
+          </button>
+        </form>
+      ) : step === "reset" ? (
+        <form onSubmit={submitReset} className="space-y-4">
+          <h1 className="font-display text-2xl font-bold text-ink">Nouveau mot de passe</h1>
+          <p className="text-sm text-ink-2">Si un compte existe pour {email}, un code à 6 chiffres vient d'être envoyé. Il est valable 10 minutes.</p>
+          {reset?.devCode && <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-amber">Mode développement : code {reset.devCode}</p>}
+          <label className="block">
+            <span className="label">Code reçu par e-mail</span>
+            <input
+              className="input text-center font-display text-xl tracking-[0.4em]"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              required
+              autoFocus
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            />
+          </label>
+          <label className="block">
+            <span className="label">Nouveau mot de passe</span>
+            <input className="input" type="password" autoComplete="new-password" required value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            <span className="mt-1 block text-xs text-muted">10 caractères minimum, avec au moins une lettre et un chiffre.</span>
+          </label>
+          {error && <p className="text-sm text-red">{error}</p>}
+          <button className="btn btn-primary w-full" disabled={busy || code.length < 6 || newPassword.length < 10}>
+            {busy ? "Enregistrement…" : "Changer le mot de passe"}
+          </button>
+          <button type="button" className="btn btn-ghost w-full" onClick={() => go("password")}>
+            Retour à la connexion
+          </button>
         </form>
       ) : (
         <form onSubmit={submitCode} className="space-y-4">

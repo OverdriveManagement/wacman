@@ -5,7 +5,8 @@ import { Toasts } from "@/components/ui";
 export const metadata: Metadata = {
   title: "WacMan",
   description: "Wifirst Account Management : pilotage des comptes clients",
-  icons: { icon: "/favicon.svg" },
+  icons: { icon: "/favicon.svg", apple: "/apple-touch-icon.png" },
+  appleWebApp: { capable: true, title: "WacMan", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {

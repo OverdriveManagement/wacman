@@ -2,9 +2,11 @@
 
 import useSWR from "swr";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent } from "@dnd-kit/core";
 import { api, fetcher } from "@/lib/api";
+import { useMe } from "@/lib/hooks";
 import { frDate, isOverdue, tone } from "@/lib/format";
 import type { Card, Meeting } from "@/lib/types";
 import { useAcc } from "@/components/AccountContext";
@@ -17,6 +19,22 @@ export default function KanbanPage() {
   const acc = useAcc();
   const { data: cards, mutate } = useSWR<Card[]>(`${acc.base}/cards`, fetcher);
   const [open, setOpen] = useState<Card | null>(null);
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const linked = params.get("card");
+
+  // lien direct vers une carte (recherche, tableau de bord) : ouverte une seule fois, puis le lien est retiré de l'adresse
+  // (sinon chaque rechargement de la liste rouvrirait la carte d'origine). Une carte archivée est chargée à part.
+  useEffect(() => {
+    if (!linked || !cards) return;
+    const c = cards.find((x) => x.id === linked);
+    if (c) setOpen(c);
+    else api<Card>(`${acc.base}/e/card/${linked}`, { silent: true }).then(setOpen, () => undefined);
+    router.replace(pathname, { scroll: false });
+  }, [linked, cards, acc.base, router, pathname]);
+
+  const close = () => setOpen(null);
 
   const onChanged = (c?: Card, removed?: boolean) => {
     if (!c) return mutate();
@@ -32,7 +50,7 @@ export default function KanbanPage() {
       <Disclosure title="Mode d'emploi">
         <Markdown text={acc.data.account.settings.kanbanGuide} />
       </Disclosure>
-      <CardModal card={open} onClose={() => setOpen(null)} onChanged={onChanged} />
+      <CardModal card={open} onClose={close} onChanged={onChanged} onDuplicated={(c) => (mutate(), setOpen(c))} />
     </div>
   );
 }
@@ -182,6 +200,10 @@ function Kanban({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState<string | null>(null);
   const [alertOnly, setAlertOnly] = useState(false);
+  const [lateOnly, setLateOnly] = useState(false);
+  const [mineOnly, setMineOnly] = useState(false);
+  const { data: me } = useMe();
+  const myContacts = useMemo(() => new Set(acc.data.contacts.filter((c) => c.userId && c.userId === me?.user.id).map((c) => c.id)), [acc.data.contacts, me]);
   const [mobileStatus, setMobileStatus] = useState(statuses[1]?.id ?? statuses[0]?.id ?? "");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [creating, setCreating] = useState<{ streamId: string | null; statusId: string | null } | null>(null);
@@ -196,9 +218,14 @@ function Kanban({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<
         (!sprintId || c.sprintId === sprintId) &&
         (!owner || c.ownerId === owner) &&
         (!alertOnly || c.alertLevelId) &&
-        (!q || c.title.toLowerCase().includes(q) || String(c.ref) === q),
+        (!lateOnly || (isOverdue(c.dueDate) && !acc.isDone(c.statusId))) &&
+        (!mineOnly || (c.ownerId && myContacts.has(c.ownerId))) &&
+        (!q || c.title.toLowerCase().includes(q) || String(c.ref) === q.replace("#", "")),
     );
-  }, [cards, sprintId, owner, alertOnly, query]);
+  }, [cards, sprintId, owner, alertOnly, lateOnly, mineOnly, myContacts, query, acc]);
+  const sprintCards = (cards ?? []).filter((c) => !sprintId || c.sprintId === sprintId);
+  const doneCount = sprintCards.filter((c) => acc.isDone(c.statusId)).length;
+  const donePct = sprintCards.length ? Math.round((doneCount / sprintCards.length) * 100) : 0;
 
   const cellCards = (streamId: string | null, statusId: string) =>
     visible.filter((c) => (c.streamId ?? null) === streamId && (c.statusId ?? statuses[0]?.id) === statusId).sort((a, b) => a.position - b.position);
@@ -270,10 +297,18 @@ function Kanban({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<
         Kanban {sprint ? `du ${sprint.name}` : "de tous les sprints"}
       </SectionTitle>
       {sprint && (
-        <p className="-mt-2 mb-3 text-xs text-muted">
+        <p className="-mt-2 mb-2 text-xs text-muted">
           Du {frDate(sprint.startDate)} au {frDate(sprint.endDate)}
           {sprint.clientMilestone ? `. Échéance ${acc.data.account.clientName} : ${sprint.clientMilestone}` : ""}
         </p>
+      )}
+      {sprintCards.length > 0 && (
+        <div className="mb-3 flex items-center gap-3 text-xs text-muted" title={`${doneCount} carte(s) terminée(s) sur ${sprintCards.length}`}>
+          <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-3">
+            <div className="h-full rounded-full bg-teal" style={{ width: `${donePct}%` }} />
+          </div>
+          {doneCount}/{sprintCards.length} terminées ({donePct} %)
+        </div>
       )}
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
@@ -288,9 +323,19 @@ function Kanban({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<
         </select>
         <OptionSelect className="lg:w-52" options={acc.data.contacts.map((c) => ({ id: c.id, label: c.name }))} value={owner} onChange={setOwner} placeholder="Tous les porteurs" />
         <input className="input lg:w-64" placeholder="Rechercher une carte ou une réf." value={query} onChange={(e) => setQuery(e.target.value)} />
-        <label className="flex items-center gap-2 text-sm text-ink-2">
-          <input type="checkbox" checked={alertOnly} onChange={(e) => setAlertOnly(e.target.checked)} /> Vigilance ou alerte uniquement
-        </label>
+        <div className="flex flex-wrap gap-1.5 sm:col-span-2 lg:col-span-1">
+          <FilterChip active={alertOnly} onClick={() => setAlertOnly(!alertOnly)}>
+            ⚠️ Vigilance ou alerte
+          </FilterChip>
+          <FilterChip active={lateOnly} onClick={() => setLateOnly(!lateOnly)}>
+            ⏰ En retard
+          </FilterChip>
+          {myContacts.size > 0 && (
+            <FilterChip active={mineOnly} onClick={() => setMineOnly(!mineOnly)}>
+              🙋 Mes cartes
+            </FilterChip>
+          )}
+        </div>
       </div>
 
       {!cards ? (
@@ -350,6 +395,14 @@ function Kanban({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<
 
       <NewCardModal init={creating} sprintId={sprintId || acc.currentSprint?.id || null} onClose={() => setCreating(null)} onCreated={(c) => (mutate(), onOpen(c))} />
     </section>
+  );
+}
+
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button className={`btn btn-sm ${active ? "btn-primary" : ""}`} onClick={onClick} aria-pressed={active}>
+      {children}
+    </button>
   );
 }
 

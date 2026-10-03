@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAccount } from "@/lib/hooks";
 import { AccountContext } from "@/components/AccountContext";
 import { Logo, ThemeToggle } from "@/components/Brand";
@@ -10,10 +10,13 @@ import { UserMenu } from "@/components/TopBar";
 import { Spinner } from "@/components/ui";
 import { ExportDialog } from "@/components/ExportDialog";
 import { Assistant } from "@/components/Assistant";
+import { SearchPalette } from "@/components/SearchPalette";
 import {
   IconBuilding,
   IconDownload,
   IconEuro,
+  IconGauge,
+  IconSearch,
   IconHistory,
   IconHome,
   IconKanban,
@@ -34,6 +37,24 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // Ctrl+K ou ⌘K : recherche globale ; « / » hors champ de saisie aussi
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (e.key === "/" && !typing) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (acc.error) {
     return (
@@ -51,6 +72,7 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
 
   const program: NavItem[] = account.modules.program
     ? [
+        { href: `${base}/dashboard`, label: "Tableau de bord", icon: <IconGauge /> },
         { href: base, label: "Kanban", icon: <IconKanban />, exact: true },
         ...acc.data.meetingTypes
           .filter((m) => m.active)
@@ -115,6 +137,10 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
               </span>
               <span className="hidden md:inline">{pageTitle(pathname, base, acc.data.meetingTypes)}</span>
             </div>
+            <button className="btn btn-sm" onClick={() => setSearchOpen(true)} title="Rechercher (Ctrl+K)" aria-label="Rechercher">
+              <IconSearch /> <span className="hidden lg:inline">Rechercher</span>
+              <kbd className="hidden rounded border border-line px-1 text-[0.65rem] text-muted xl:inline">Ctrl K</kbd>
+            </button>
             {account.modules.program && (
               <button className="btn btn-sm" onClick={() => setExportOpen(true)} title="Exporter en PowerPoint ou Excel">
                 <IconDownload /> <span className="hidden sm:inline">Exporter</span>
@@ -142,13 +168,16 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
             </div>
             <AccountBadge emoji={account.emoji} name={account.name} client={account.clientName} />
             <div className="min-h-0 flex-1 overflow-y-auto">{nav}</div>
+            <Link href="/" className="btn w-full" onClick={() => setDrawer(false)}>
+              <IconHome /> Tous les comptes
+            </Link>
           </div>
         </div>
       )}
 
       {/* navigation basse mobile */}
       <nav className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-line-soft bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
-        <BottomLink href="/" label="Comptes" icon={<IconHome />} active={false} />
+        <BottomLink href={`${base}/dashboard`} label="Bord" icon={<IconGauge />} active={pathname === `${base}/dashboard`} />
         <BottomLink href={base} label="Kanban" icon={<IconKanban />} active={pathname === base} />
         <button className="flex flex-col items-center gap-0.5 py-2 text-[0.68rem] text-accent" onClick={() => setAssistantOpen(true)}>
           <IconSparkles />
@@ -162,12 +191,14 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
 
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <Assistant open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+      <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
     </AccountContext.Provider>
   );
 }
 
 function pageTitle(path: string, base: string, types: { id: string; name: string }[]) {
   if (path === base) return "Kanban";
+  if (path.startsWith(`${base}/dashboard`)) return "Tableau de bord";
   if (path.startsWith(`${base}/meetings/`)) return types.find((t) => path.includes(t.id))?.name ?? "Séances";
   if (path.startsWith(`${base}/risks`)) return "Risques & arbitrages";
   if (path.startsWith(`${base}/governance`)) return "Gouvernance";

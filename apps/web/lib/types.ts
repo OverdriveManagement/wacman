@@ -247,3 +247,65 @@ export interface Member {
   role: Role;
   user: { id: string; email: string; name: string; active: boolean; isSuperAdmin: boolean; lastLoginAt: string | null };
 }
+
+export interface CardLite {
+  id: string;
+  ref: number;
+  title: string;
+  emoji: string;
+  dueDate: string | null;
+  ownerId: string | null;
+  streamId: string | null;
+  statusId: string | null;
+  alertLevelId: string | null;
+}
+
+export interface Dashboard {
+  today: string;
+  sprint: {
+    id: string;
+    name: string;
+    startDate: string | null;
+    endDate: string | null;
+    objective: string;
+    clientMilestone: string;
+    timeline: { daysTotal: number; daysElapsed: number; daysLeft: number } | null;
+    total: number;
+    done: number;
+    byStatus: { id: string | null; count: number }[];
+    byStream: { id: string; total: number; done: number; alerts: number }[];
+  } | null;
+  alerts: { id: string; count: number }[];
+  overdue: CardLite[];
+  overdueCount: number;
+  dueSoon: CardLite[];
+  mine: CardLite[] | null;
+  risks: {
+    open: number;
+    total: number;
+    byCriticality: { id: string; count: number }[];
+    overdue: { id: string; title: string; dueDate: string | null; criticalityId: string | null; ownerId: string | null }[];
+  };
+  meetings: { typeId: string; count: number; last: { date: string; id: string } | null; next: string | null }[];
+  activity: { id: string; entityType: string; entityId: string; action: string; summary: string; userName: string; viaAssistant: boolean; createdAt: string }[];
+}
+
+export interface SearchResults {
+  query: string;
+  cards: { id: string; ref: number; title: string; emoji: string; streamId: string | null; statusId: string | null; archived: boolean; snippet: string }[];
+  risks: { id: string; title: string; criticalityId: string | null; snippet: string }[];
+  topics: { id: string; title: string; emoji: string; meetingId: string; meetingTypeId: string; date: string; snippet: string }[];
+  highlights: { id: string; title: string; emoji: string; meetingId: string; meetingTypeId: string; date: string; snippet: string }[];
+  contacts: { id: string; name: string; company: string; role: string; email: string }[];
+  streams: { id: string; name: string; emoji: string; leader: string; prescriber: string }[];
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  readOnly: boolean;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}

@@ -1,8 +1,8 @@
 "use client";
 
 import useSWR from "swr";
-import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { api, download, fetcher, toast } from "@/lib/api";
 import { longDate, todayIso, tone } from "@/lib/format";
 import type { Highlight, Meeting, MeetingType, StreamStatus, Topic } from "@/lib/types";
@@ -11,7 +11,8 @@ import { useMe } from "@/lib/hooks";
 import { Markdown } from "@/components/Markdown";
 import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pill, Spinner, useConfirm } from "@/components/ui";
 import { Comments, History } from "@/components/Comments";
-import { IconChevronDown, IconComment, IconCopy, IconDown, IconDownload, IconPlus, IconTrash, IconUp } from "@/components/icons";
+import { IconChevronDown, IconComment, IconCopy, IconDown, IconDownload, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
+import { meetingReportText } from "@/lib/report";
 
 export default function MeetingsPage() {
   const acc = useAcc();
@@ -20,6 +21,19 @@ export default function MeetingsPage() {
   const { data: meetings, mutate } = useSWR<Meeting[]>(type ? `${acc.base}/meetings?typeId=${typeId}` : null, fetcher);
   const [creating, setCreating] = useState<"empty" | "previous" | null>(null);
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const target = params.get("m");
+  // lien direct vers une séance (recherche, tableau de bord) : on l'ouvre, on la montre, puis le lien est retiré de l'adresse
+  useEffect(() => {
+    if (!target || !meetings) return;
+    if (meetings.some((m) => m.id === target)) {
+      setOpenIds((o) => ({ ...o, [meetings[0].id]: meetings[0].id === target, [target]: true }));
+      setTimeout(() => document.getElementById(`meeting-${target}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
+    router.replace(pathname, { scroll: false });
+  }, [target, meetings, router, pathname]);
   if (!type) return <Empty>Type de séance introuvable.</Empty>;
 
   return (
@@ -137,7 +151,7 @@ function MeetingSection({ meeting, type, open, onToggle, reload }: { meeting: Me
   const confirm = useConfirm();
   const count = meeting.highlights.length + meeting.statuses.length + meeting.topics.length;
   return (
-    <section className="card overflow-hidden">
+    <section id={`meeting-${meeting.id}`} className="card scroll-mt-20 overflow-hidden">
       <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-3">
         <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={onToggle} aria-expanded={open}>
           <IconChevronDown className={`shrink-0 text-muted transition ${open ? "" : "-rotate-90"}`} />
@@ -146,6 +160,27 @@ function MeetingSection({ meeting, type, open, onToggle, reload }: { meeting: Me
           </span>
           <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{count}</span>
         </button>
+        {open && (
+          <div className="flex items-center gap-1">
+            <button
+              className="btn btn-ghost btn-sm"
+              title="Copier le compte rendu (texte prêt pour un e-mail)"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(meetingReportText(meeting, type, acc));
+                  toast("success", "Compte rendu copié : collez-le dans votre e-mail.");
+                } catch {
+                  toast("error", "Copie impossible dans ce navigateur.");
+                }
+              }}
+            >
+              <IconCopy /> <span className="hidden sm:inline">Copier le CR</span>
+            </button>
+            <a className="btn btn-ghost btn-sm" href={`/print/${acc.data.account.slug}/meeting/${meeting.id}`} target="_blank" rel="noreferrer" title="Imprimer ou enregistrer en PDF">
+              <IconPrint /> <span className="hidden sm:inline">PDF</span>
+            </a>
+          </div>
+        )}
         {acc.canEdit && open && (
           <div className="flex items-center gap-2">
             <input

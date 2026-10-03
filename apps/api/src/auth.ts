@@ -1,7 +1,7 @@
 import { SignJWT, jwtVerify } from "jose";
 import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { db, T, HttpError, toSessionUser, type SessionUser } from "@wacman/core";
+import { db, T, HttpError, toSessionUser, resolveApiToken, TOKEN_PREFIX, type SessionUser } from "@wacman/core";
 import { env } from "./env.js";
 
 export const SESSION_COOKIE = "wacman_session";
@@ -56,10 +56,17 @@ async function userFromToken(token: string, typ: "session" | "assistant"): Promi
 declare module "fastify" {
   interface FastifyRequest {
     user?: SessionUser;
+    /** vrai si la requête est authentifiée par un jeton d'accès en lecture seule */
+    readOnlyToken?: boolean;
+    /** vrai si la requête est authentifiée par un jeton d'accès personnel */
+    viaToken?: boolean;
   }
 }
 
-/** Identifie l'utilisateur à partir du cookie de session (ou d'un jeton assistant en Bearer). */
+/**
+ * Identifie l'utilisateur : cookie de session, jeton assistant (Bearer, 10 min)
+ * ou jeton d'accès personnel (Bearer wac_…).
+ */
 export async function resolveUser(req: FastifyRequest): Promise<SessionUser | null> {
   const cookie = req.cookies?.[SESSION_COOKIE];
   if (cookie) {
@@ -67,8 +74,20 @@ export async function resolveUser(req: FastifyRequest): Promise<SessionUser | nu
     if (u) return u;
   }
   const auth = req.headers.authorization;
-  if (auth?.startsWith("Bearer ")) return userFromToken(auth.slice(7), "assistant");
+  if (auth?.startsWith("Bearer ")) {
+    const token = auth.slice(7).trim();
+    if (token.startsWith(TOKEN_PREFIX)) return userFromApiToken(req, token);
+    return userFromToken(token, "assistant");
+  }
   return null;
+}
+
+export async function userFromApiToken(req: FastifyRequest, token: string): Promise<SessionUser | null> {
+  const r = await resolveApiToken(token);
+  if (!r) return null;
+  req.viaToken = true;
+  req.readOnlyToken = r.readOnly;
+  return r.readOnly ? { ...r.user, isSuperAdmin: false } : r.user;
 }
 
 export function requireUser(req: FastifyRequest): SessionUser {

@@ -6,12 +6,14 @@ import { api, toast } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
 import { Logo, ThemeToggle } from "./Brand";
 import { Field, Modal } from "./ui";
-import { IconLogout, IconUsers } from "./icons";
+import { IconKey, IconLogout, IconUsers } from "./icons";
+import { TokensDialog } from "./TokensDialog";
 
 export function UserMenu() {
   const { data } = useMe();
   const [open, setOpen] = useState(false);
   const [pwd, setPwd] = useState(false);
+  const [tokens, setTokens] = useState(false);
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
   if (!data) return null;
@@ -54,12 +56,22 @@ export function UserMenu() {
             >
               🔑 Changer de mot de passe
             </button>
+            <button
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink-2 hover:bg-surface-2"
+              onClick={() => {
+                setTokens(true);
+                setOpen(false);
+              }}
+            >
+              <IconKey /> Connecteur Claude et jetons
+            </button>
             <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-ink-2 hover:bg-surface-2" onClick={logout}>
               <IconLogout /> Se déconnecter
             </button>
           </div>
         </>
       )}
+      <TokensDialog open={tokens} onClose={() => setTokens(false)} />
       <Modal
         open={pwd}
         onClose={() => setPwd(false)}

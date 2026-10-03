@@ -76,6 +76,36 @@ export async function moveCard(ctx: Ctx, cardId: string, input: unknown) {
   return row;
 }
 
+/** Duplique une carte (sans ses commentaires) juste après l'originale. */
+export async function duplicateCard(ctx: Ctx, cardId: string) {
+  assertRole(ctx, "EDITOR");
+  const card = await cardOf(ctx, cardId);
+  if (!card) throw notFound("Carte introuvable.");
+  const { createEntity } = await import("../entities.js");
+  const [next] = await db
+    .select({ position: T.cards.position })
+    .from(T.cards)
+    .where(and(eq(T.cards.accountId, ctx.accountId), sql`${T.cards.position} > ${card.position}`))
+    .orderBy(asc(T.cards.position))
+    .limit(1);
+  return createEntity(ctx, "card", {
+    title: `${card.title} (copie)`.slice(0, 300),
+    emoji: card.emoji,
+    description: card.description,
+    progressNote: card.progressNote,
+    nextSteps: card.nextSteps,
+    alertsNote: card.alertsNote,
+    dueDate: card.dueDate,
+    progressPct: card.progressPct,
+    streamId: card.streamId,
+    sprintId: card.sprintId,
+    statusId: card.statusId,
+    alertLevelId: card.alertLevelId,
+    ownerId: card.ownerId,
+    position: next ? (card.position + next.position) / 2 : card.position + 1,
+  });
+}
+
 /** Clôt un sprint, ouvre le suivant et y bascule les cartes non terminées. */
 export async function switchSprint(ctx: Ctx, input: unknown) {
   assertRole(ctx, "ADMIN");

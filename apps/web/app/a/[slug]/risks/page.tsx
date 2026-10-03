@@ -1,7 +1,8 @@
 "use client";
 
 import useSWR from "swr";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api, fetcher, toast } from "@/lib/api";
 import { frDate, tone } from "@/lib/format";
 import type { Card, Risk } from "@/lib/types";
@@ -19,6 +20,18 @@ export default function RisksPage() {
   const [type, setType] = useState<string | null>(null);
   const [showClosed, setShowClosed] = useState(false);
   const [stream, setStream] = useState<string | null>(null);
+  const params = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const linked = params.get("risk");
+  useEffect(() => {
+    if (!linked || !risks) return;
+    const r = risks.find((x) => x.id === linked);
+    if (r) {
+      setEdit(r);
+      router.replace(pathname, { scroll: false });
+    }
+  }, [linked, risks, router, pathname]);
 
   const list = useMemo(
     () =>

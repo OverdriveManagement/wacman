@@ -9,3 +9,5 @@ export * from "./services/accounts.js";
 export * from "./services/users.js";
 export * from "./services/program.js";
 export * from "./services/transfer.js";
+export * from "./services/tokens.js";
+export * from "./services/insights.js";

@@ -40,12 +40,33 @@ export const loginChallenges = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     codeHash: text("code_hash").notNull(),
+    purpose: text("purpose").notNull().default("LOGIN"), // LOGIN ou RESET (mot de passe oublié)
     attempts: integer("attempts").notNull().default(0),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [index("login_challenges_user_idx").on(t.userId)],
+);
+
+/** Jetons d'accès personnels (API REST et serveur MCP pour Claude). Seul le hachage est conservé. */
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    prefix: text("prefix").notNull(),
+    readOnly: boolean("read_only").notNull().default(false),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("api_tokens_user_idx").on(t.userId)],
 );
 
 export const roleEnum = pgEnum("role", ["ADMIN", "EDITOR", "VIEWER"]);

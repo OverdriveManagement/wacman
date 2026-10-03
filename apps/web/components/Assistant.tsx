@@ -22,6 +22,7 @@ const TOOL_LABELS: Record<string, string> = {
   list_items: "Lecture d'une liste",
   list_meetings: "Lecture des séances",
   search: "Recherche",
+  get_dashboard: "Lecture des indicateurs",
   create_item: "Création",
   update_item: "Modification",
   delete_item: "Suppression",

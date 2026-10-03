@@ -291,3 +291,21 @@ table.data tbody tr:hover td {
 .fadein {
   animation: fadein 0.18s ease-out;
 }
+
+/* Impression (compte rendu de séance) */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  html,
+  body {
+    background: #fff !important;
+  }
+  .print-doc {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  @page {
+    margin: 12mm;
+  }
+}

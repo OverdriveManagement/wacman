@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, or } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import {
   db,
   T,
@@ -16,6 +16,8 @@ import {
   addComment,
   listComments,
   listEntities,
+  searchAccount,
+  getDashboard,
   type Ctx,
 } from "@wacman/core";
 
@@ -135,35 +137,15 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "search",
-    description: "Recherche plein texte (titre et contenus) dans les cartes, faits marquants, sujets et risques.",
+    description: "Recherche plein texte (insensible aux accents) dans les cartes (ou par numéro de référence), risques, sujets, faits marquants, contacts et streams.",
     input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-    run: async (ctx, i) => {
-      const q = `%${String(i.query)}%`;
-      const [cards, hl, tp, rk] = await Promise.all([
-        db
-          .select({ id: T.cards.id, ref: T.cards.ref, title: T.cards.title })
-          .from(T.cards)
-          .where(and(eq(T.cards.accountId, ctx.accountId), or(ilike(T.cards.title, q), ilike(T.cards.description, q), ilike(T.cards.progressNote, q), ilike(T.cards.alertsNote, q), ilike(T.cards.nextSteps, q))))
-          .limit(20),
-        db
-          .select({ id: T.highlights.id, title: T.highlights.title, meetingId: T.highlights.meetingId })
-          .from(T.highlights)
-          .where(and(eq(T.highlights.accountId, ctx.accountId), or(ilike(T.highlights.title, q), ilike(T.highlights.detail, q))))
-          .limit(20),
-        db
-          .select({ id: T.topics.id, title: T.topics.title, meetingId: T.topics.meetingId })
-          .from(T.topics)
-          .where(and(eq(T.topics.accountId, ctx.accountId), or(ilike(T.topics.title, q), ilike(T.topics.description, q), ilike(T.topics.decisionRequest, q))))
-          .limit(20),
-        db
-          .select({ id: T.risks.id, title: T.risks.title })
-          .from(T.risks)
-          .where(and(eq(T.risks.accountId, ctx.accountId), or(ilike(T.risks.title, q), ilike(T.risks.description, q), ilike(T.risks.mitigation, q))))
-          .orderBy(asc(T.risks.title))
-          .limit(20),
-      ]);
-      return { cards, highlights: hl, topics: tp, risks: rk };
-    },
+    run: (ctx, i) => searchAccount(ctx, String(i.query ?? ""), 15),
+  },
+  {
+    name: "get_dashboard",
+    description: "Indicateurs du compte : sprint en cours (avancement, cartes par statut et par stream), cartes en retard ou à échéance sous 15 jours, alertes, risques ouverts par criticité, dernières et prochaines séances, activité récente.",
+    input_schema: { type: "object", properties: {} },
+    run: (ctx) => getDashboard(ctx),
   },
   {
     name: "create_item",

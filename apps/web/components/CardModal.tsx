@@ -2,15 +2,25 @@
 
 import { useEffect, useState } from "react";
 import { api, toast } from "@/lib/api";
-import { dateTime, frDate } from "@/lib/format";
+import { dateTime } from "@/lib/format";
 import type { Card } from "@/lib/types";
 import { useAcc } from "./AccountContext";
 import { Comments, History } from "./Comments";
 import { Field, InlineText, Modal, OptionSelect, Pill, useConfirm } from "./ui";
-import { IconTrash } from "./icons";
+import { IconCopy, IconTrash } from "./icons";
 
 /** Fiche d'un livrable : en-tête (statut, stream, porteur, sprint), corps, détails, commentaires et historique. */
-export function CardModal({ card, onClose, onChanged }: { card: Card | null; onClose: () => void; onChanged: (c?: Card, removed?: boolean) => void }) {
+export function CardModal({
+  card,
+  onClose,
+  onChanged,
+  onDuplicated,
+}: {
+  card: Card | null;
+  onClose: () => void;
+  onChanged: (c?: Card, removed?: boolean) => void;
+  onDuplicated?: (c: Card) => void;
+}) {
   const acc = useAcc();
   const [c, setC] = useState<Card | null>(card);
   const [tab, setTab] = useState<"comments" | "history">("comments");
@@ -120,10 +130,22 @@ export function CardModal({ card, onClose, onChanged }: { card: Card | null; onC
             </Field>
           </div>
           <div className="mt-2 text-xs text-muted">
-            Créée le {frDate(c.createdAt.slice(0, 10))}. Réf. {c.ref}.
+            Créée le {new Date(c.createdAt).toLocaleDateString("fr-FR")}. Réf. {c.ref}.
           </div>
           {acc.canEdit && (
             <div className="mt-3 flex flex-wrap gap-2">
+              {onDuplicated && (
+                <button
+                  className="btn btn-sm"
+                  onClick={async () => {
+                    const copy = await api<Card>(`${acc.base}/cards/${c.id}/duplicate`, { method: "POST" });
+                    toast("success", `Carte dupliquée : réf. ${copy.ref}.`);
+                    onDuplicated(copy);
+                  }}
+                >
+                  <IconCopy width={14} height={14} /> Dupliquer
+                </button>
+              )}
               <button className="btn btn-sm" onClick={() => save({ archived: !c.archived })}>
                 {c.archived ? "Désarchiver" : "Archiver la carte"}
               </button>
