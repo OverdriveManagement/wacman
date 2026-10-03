@@ -1,0 +1,320 @@
+"use client";
+
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { onToast } from "@/lib/api";
+import { tone } from "@/lib/format";
+import type { Option } from "@/lib/types";
+import { Markdown } from "./Markdown";
+import { IconChevronDown, IconInfo, IconX } from "./icons";
+
+export function Spinner({ label = "Chargement…" }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-3 p-6 text-sm text-muted" role="status">
+      <span className="h-4 w-4 animate-spin rounded-full border-2 border-line border-t-accent" />
+      {label}
+    </div>
+  );
+}
+
+export function Empty({ children }: { children: ReactNode }) {
+  return <div className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-muted">{children}</div>;
+}
+
+/** Pastille d'une valeur de liste (statut, niveau d'alerte, type...). */
+export function Pill({ option, small = false, fallback }: { option?: Option | null; small?: boolean; fallback?: string }) {
+  if (!option) return fallback ? <span className="text-xs text-muted">{fallback}</span> : null;
+  const c = tone[option.color] ?? tone.slate;
+  return (
+    <span
+      className={`inline-flex max-w-full items-center gap-1 rounded-full font-semibold ${small ? "px-2 py-0.5 text-[0.68rem]" : "px-2.5 py-0.5 text-xs"}`}
+      style={{ color: c, background: `color-mix(in srgb, ${c} 14%, transparent)`, border: `1px solid color-mix(in srgb, ${c} 30%, transparent)` }}
+    >
+      {option.emoji && <span className="leading-none">{option.emoji}</span>}
+      <span className="truncate">{option.label}</span>
+    </span>
+  );
+}
+
+export function Dot({ color, title }: { color: string; title?: string }) {
+  return <span title={title} className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: tone[color] ?? color }} />;
+}
+
+export function Toasts() {
+  const [items, setItems] = useState<{ id: number; type: "error" | "success"; text: string }[]>([]);
+  useEffect(() => {
+    const off = onToast((m) => {
+      const id = Date.now() + Math.random();
+      setItems((s) => [...s, { id, ...m }]);
+      setTimeout(() => setItems((s) => s.filter((x) => x.id !== id)), m.type === "error" ? 7000 : 3000);
+    });
+    return () => {
+      off();
+    };
+  }, []);
+  return (
+    <div className="pointer-events-none fixed bottom-20 left-1/2 z-[100] flex w-[min(92vw,460px)] -translate-x-1/2 flex-col gap-2 md:bottom-6">
+      {items.map((t) => (
+        <div
+          key={t.id}
+          className="fadein pointer-events-auto rounded-xl border px-4 py-3 text-sm shadow-lg"
+          style={{
+            background: "var(--surface-2)",
+            borderColor: t.type === "error" ? "var(--red)" : "var(--teal)",
+            color: "var(--text)",
+          }}
+        >
+          {t.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  wide = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: ReactNode;
+  children: ReactNode;
+  footer?: ReactNode;
+  wide?: boolean;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", h);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", h);
+      document.body.style.overflow = "";
+    };
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/55 backdrop-blur-[2px] md:items-center md:p-6" onMouseDown={onClose}>
+      <div
+        role="dialog"
+        aria-modal
+        className={`fadein flex max-h-[94dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-surface shadow-2xl md:rounded-2xl ${wide ? "md:max-w-4xl" : "md:max-w-xl"}`}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-line-soft px-5 py-4">
+          <div className="min-w-0 flex-1 font-display text-lg font-bold text-ink">{title}</div>
+          <button className="btn btn-ghost btn-sm -mr-2" onClick={onClose} aria-label="Fermer">
+            <IconX />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {footer && <div className="flex flex-wrap justify-end gap-2 border-t border-line-soft px-5 py-3">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+  return (
+    <label className="block">
+      <span className="label">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-[0.7rem] text-muted">{hint}</span>}
+    </label>
+  );
+}
+
+export function Toggle({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="inline-flex items-center gap-2 text-sm text-ink-2 disabled:opacity-50"
+    >
+      <span className={`relative h-5 w-9 rounded-full transition ${checked ? "bg-accent" : "bg-surface-3"}`} style={{ border: "1px solid var(--border)" }}>
+        <span className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition ${checked ? "left-[18px]" : "left-0.5"}`} />
+      </span>
+      {label}
+    </button>
+  );
+}
+
+/** Bloc repliable (modes d'emploi). */
+export function Disclosure({ title, children, defaultOpen = false, icon }: { title: ReactNode; children: ReactNode; defaultOpen?: boolean; icon?: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-line-soft bg-surface/60">
+      <button className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-semibold text-ink-2" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {icon ?? <IconInfo className="text-muted" />}
+        <span className="flex-1">{title}</span>
+        <IconChevronDown className={`transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && <div className="border-t border-line-soft px-4 py-3 text-sm text-ink-2">{children}</div>}
+    </div>
+  );
+}
+
+export function Callout({ text, icon = "💡" }: { text: string; icon?: string }) {
+  if (!text?.trim()) return null;
+  return (
+    <div className="flex gap-3 rounded-xl border px-4 py-3 text-sm text-ink-2" style={{ background: "color-mix(in srgb, var(--petrol) 22%, transparent)", borderColor: "color-mix(in srgb, var(--petrol-2) 45%, transparent)" }}>
+      <span className="text-base leading-6">{icon}</span>
+      <Markdown text={text} className="flex-1" />
+    </div>
+  );
+}
+
+export function SectionTitle({ children, actions, icon }: { children: ReactNode; actions?: ReactNode; icon?: string }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <h2 className="section-title flex items-center gap-2">
+        {icon && <span>{icon}</span>}
+        {children}
+      </h2>
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+/** Texte éditable au clic : sauvegarde à la sortie du champ (ou Ctrl+Entrée). */
+export function InlineText({
+  value,
+  onSave,
+  multiline = false,
+  placeholder = "Cliquer pour saisir…",
+  disabled = false,
+  className = "",
+  render,
+}: {
+  value: string;
+  onSave: (v: string) => Promise<unknown> | void;
+  multiline?: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+  render?: (v: string) => ReactNode;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
+  useEffect(() => setDraft(value), [value]);
+  useEffect(() => {
+    if (editing && ref.current) {
+      ref.current.focus();
+      if (multiline) {
+        ref.current.style.height = "auto";
+        ref.current.style.height = `${ref.current.scrollHeight + 2}px`;
+      }
+    }
+  }, [editing, multiline]);
+  const commit = async () => {
+    setEditing(false);
+    if (draft !== value) await onSave(draft);
+  };
+  if (editing && !disabled) {
+    const common = {
+      ref,
+      value: draft,
+      className: `input ${className}`,
+      onBlur: commit,
+      onChange: (e: React.ChangeEvent<HTMLTextAreaElement & HTMLInputElement>) => {
+        setDraft(e.target.value);
+        if (multiline) {
+          e.target.style.height = "auto";
+          e.target.style.height = `${e.target.scrollHeight + 2}px`;
+        }
+      },
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setDraft(value);
+          setEditing(false);
+        }
+        if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          commit();
+        }
+      },
+    };
+    return multiline ? <textarea rows={3} {...common} /> : <input {...common} />;
+  }
+  return (
+    <div
+      role={disabled ? undefined : "button"}
+      tabIndex={disabled ? undefined : 0}
+      onClick={() => !disabled && setEditing(true)}
+      onKeyDown={(e) => !disabled && e.key === "Enter" && setEditing(true)}
+      className={`min-h-[1.5rem] rounded-md ${disabled ? "" : "cursor-text hover:bg-surface-2/70"} ${className}`}
+    >
+      {value?.trim() ? (render ? render(value) : <Markdown text={value} />) : !disabled ? <span className="text-sm text-muted/70">{placeholder}</span> : <span className="text-muted">-</span>}
+    </div>
+  );
+}
+
+export function OptionSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Aucun",
+  disabled,
+  className = "",
+}: {
+  options: { id: string; label: string; emoji?: string }[];
+  value: string | null | undefined;
+  onChange: (v: string | null) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <select className={`input ${className}`} value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{placeholder}</option>
+      {options.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.emoji ? `${o.emoji} ` : ""}
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function Confirm({ open, onClose, onConfirm, title, text, danger = true }: { open: boolean; onClose: () => void; onConfirm: () => void; title: string; text: string; danger?: boolean }) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Annuler
+          </button>
+          <button
+            className={`btn ${danger ? "" : "btn-primary"}`}
+            style={danger ? { background: "var(--red)", borderColor: "var(--red)", color: "#fff" } : undefined}
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          >
+            Confirmer
+          </button>
+        </>
+      }
+    >
+      <p className="text-sm text-ink-2">{text}</p>
+    </Modal>
+  );
+}
+
+export function useConfirm() {
+  const [state, setState] = useState<{ title: string; text: string; action: () => void } | null>(null);
+  const node = <Confirm open={!!state} onClose={() => setState(null)} onConfirm={() => state?.action()} title={state?.title ?? ""} text={state?.text ?? ""} />;
+  return { ask: (title: string, text: string, action: () => void) => setState({ title, text, action }), node };
+}

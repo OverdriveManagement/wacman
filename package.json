@@ -1,0 +1,16 @@
+{
+  "name": "wacman",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WacMan - Wifirst Account Management",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev:api": "npm run dev -w @wacman/api",
+    "dev:web": "npm run dev -w @wacman/web",
+    "build:api": "npm run build -w @wacman/api",
+    "build:web": "npm run build -w @wacman/web",
+    "db:migrate": "npm run migrate:dev -w @wacman/core",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": { "node": ">=20" }
+}
