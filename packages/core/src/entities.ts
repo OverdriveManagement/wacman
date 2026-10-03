@@ -328,7 +328,16 @@ async function withCardIds(rows: Record<string, unknown>[]): Promise<Record<stri
 }
 
 /** Vérifie que les références (stream, sprint, option, contact, séance...) appartiennent bien au compte. */
-async function checkRefs(ctx: Ctx, data: Record<string, unknown>) {
+/** Liste de valeurs attendue pour chaque champ d'option, selon le type d'élément. */
+const OPTION_FIELD_KIND: Record<string, Record<string, string>> = {
+  card: { statusId: "CARD_STATUS", alertLevelId: "ALERT_LEVEL" },
+  highlight: { typeId: "HIGHLIGHT_TYPE" },
+  topic: { themeId: "TOPIC_THEME", natureId: "TOPIC_NATURE" },
+  risk: { typeId: "RISK_TYPE", statusId: "RISK_STATUS", criticalityId: "RISK_CRITICALITY" },
+  streamStatus: { statusIds: "STREAM_STATUS" },
+};
+
+async function checkRefs(ctx: Ctx, data: Record<string, unknown>, model?: string) {
   const checks: [string, string][] = [
     ["streamId", "stream"],
     ["sprintId", "sprint"],
@@ -343,10 +352,22 @@ async function checkRefs(ctx: Ctx, data: Record<string, unknown>) {
     ["natureId", "option"],
     ["criticalityId", "option"],
   ];
-  for (const [field, model] of checks) {
+  const kinds = (model && OPTION_FIELD_KIND[model]) || {};
+  for (const [field, ref] of checks) {
     const v = data[field];
     if (typeof v === "string" && v) {
-      const t = TABLES[model];
+      if (!isUuid(v)) throw badRequest(`Référence invalide pour ${field} : « ${v} » n'est pas un identifiant.`);
+      if (ref === "option") {
+        const [o] = await db
+          .select({ id: T.options.id, kind: T.options.kind })
+          .from(T.options)
+          .where(and(eq(T.options.id, v), eq(T.options.accountId, ctx.accountId)))
+          .limit(1);
+        if (!o) throw badRequest(`Référence invalide pour ${field} : ${v}`);
+        if (kinds[field] && o.kind !== kinds[field]) throw badRequest(`Valeur de liste inadaptée pour ${field} : une valeur ${kinds[field]} est attendue.`);
+        continue;
+      }
+      const t = TABLES[ref];
       const found = await db.select({ id: t.id }).from(t).where(and(eq(t.id, v), eq(t.accountId, ctx.accountId))).limit(1);
       if (!found.length) throw badRequest(`Référence invalide pour ${field} : ${v}`);
     }
@@ -354,11 +375,14 @@ async function checkRefs(ctx: Ctx, data: Record<string, unknown>) {
   for (const field of ["statusIds", "cardIds"]) {
     const arr = data[field];
     if (Array.isArray(arr) && arr.length) {
+      if (!arr.every((x) => typeof x === "string" && isUuid(x))) throw badRequest(`Références invalides dans ${field}.`);
       const t = field === "statusIds" ? T.options : T.cards;
+      const conds = [inArray(t.id, arr as string[]), eq(t.accountId, ctx.accountId)];
+      if (field === "statusIds" && kinds.statusIds) conds.push(eq(T.options.kind, kinds.statusIds as (typeof T.OPTION_KINDS)[number]));
       const [{ n }] = await db
         .select({ n: sql<number>`count(*)::int` })
         .from(t)
-        .where(and(inArray(t.id, arr as string[]), eq(t.accountId, ctx.accountId)));
+        .where(and(...conds));
       if (n !== new Set(arr).size) throw badRequest(`Références invalides dans ${field}.`);
     }
   }
@@ -392,7 +416,7 @@ export async function createEntity(ctx: Ctx, name: string, input: unknown) {
   const parsed = def.create.safeParse(input);
   if (!parsed.success) throw badRequest("Données invalides.", parsed.error.flatten());
   const data = { ...(parsed.data as Record<string, unknown>) };
-  await checkRefs(ctx, data);
+  await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
   const t = table(def);
@@ -435,7 +459,7 @@ export async function updateEntity(ctx: Ctx, name: string, id: string, input: un
   const data = { ...(parsed.data as Record<string, unknown>) };
   if (name === "option" && "kind" in data && data.kind !== before.kind) throw badRequest("Le type d'une liste ne peut pas changer.");
   if (name === "meeting") delete data.meetingTypeId;
-  await checkRefs(ctx, data);
+  await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
   if (def.model === "card") data.updatedById = ctx.user.id;

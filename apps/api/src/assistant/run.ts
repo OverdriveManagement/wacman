@@ -26,6 +26,7 @@ Règles :
 }
 
 function sse(reply: FastifyReply, event: Record<string, unknown>) {
+  if (reply.raw.destroyed || reply.raw.writableEnded) return;
   reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
@@ -51,7 +52,15 @@ export async function runAssistant(ctx: Ctx, prompt: string, history: { role: "u
   let inTok = 0;
   let outTok = 0;
   let aborted = false;
-  req.raw.on("close", () => (aborted = true));
+  // la fermeture de la requête entrante survient dès la lecture du corps : on surveille la réponse
+  reply.raw.on("close", () => {
+    if (!reply.raw.writableEnded) aborted = true;
+  });
+  reply.raw.on("error", () => (aborted = true));
+  // commentaire SSE périodique pour que les relais ne coupent pas un traitement long
+  const keepAlive = setInterval(() => {
+    if (!reply.raw.destroyed && !reply.raw.writableEnded) reply.raw.write(": ping\n\n");
+  }, 15000);
 
   try {
     for (let turn = 0; turn < MAX_TURNS && !aborted; turn++) {
@@ -104,7 +113,8 @@ export async function runAssistant(ctx: Ctx, prompt: string, history: { role: "u
     req.log.error({ err: e }, "assistant");
     sse(reply, { type: "error", message: `L'assistant n'a pas pu terminer : ${message}` });
   } finally {
-    reply.raw.end();
+    clearInterval(keepAlive);
+    if (!reply.raw.writableEnded) reply.raw.end();
     await db
       .insert(T.assistantRuns)
       .values({ accountId: ctx.accountId, userId: ctx.user.id, prompt, response: finalText, actions, inputTokens: inTok, outputTokens: outTok })
