@@ -1,5 +1,5 @@
 import { and, asc, desc, eq } from "drizzle-orm";
-import { db, T, getAccountRow, mergeSettings, listCards, type Ctx } from "@wacman/core";
+import { db, T, getAccountRow, mergeSettings, listCards, markupToPlain, type Ctx } from "@wacman/core";
 
 /** Charge en une fois tout ce qu'il faut pour les exports d'un compte. */
 export async function loadAccountData(ctx: Ctx) {
@@ -55,19 +55,9 @@ export async function latestMeetings(ctx: Ctx, meetingTypeId: string, limit = 1)
     .limit(limit);
 }
 
-/** Retire le balisage léger (gras, italique, souligné, barré, surligné, code, liens) pour un export texte. */
+/** Retire le balisage léger pour un export texte (règles communes : packages/core/src/markup.ts). */
 export function plain(md: string | null | undefined): string {
-  return (md ?? "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/~~([^~]+)~~/g, "$1")
-    .replace(/==([^=]+)==/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
-    .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*/g, "$1$2")
-    .replace(/^(\s*)#{1,3}\s+/gm, "$1")
-    .replace(/^(\s*)\[[xX]\]\s+/gm, "$1[fait] ")
-    .replace(/^(\s*)\[ \]\s+/gm, "$1[à faire] ");
+  return markupToPlain(md);
 }
 
 export function frDate(iso: string | null | undefined): string {

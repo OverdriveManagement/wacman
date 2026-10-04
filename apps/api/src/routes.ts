@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
   HttpError,
+  UUID_RE,
   badRequest,
   buildCtx,
   listAccountsForUser,
@@ -79,6 +80,8 @@ export async function registerRoutes(app: FastifyInstance) {
     const b = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(req.body);
     if (!b.success) throw badRequest("E-mail et mot de passe requis.");
     throttle(`login:${req.ip}:${b.data.email.toLowerCase()}`);
+    // limite par adresse e-mail, indépendante de l'adresse IP (qui peut être falsifiée derrière un relais)
+    throttle(`login:${b.data.email.toLowerCase()}`, 20, 30 * 60_000);
     const { challengeId, code, user } = await startLogin(b.data.email, b.data.password);
     await sendLoginCode(user.email, user.name, code, (m) => req.log.info(m));
     return { challengeId, email: user.email.replace(/^(.).*(@.*)$/, "$1•••$2"), ...(env.devShowOtp ? { devCode: code } : {}) };
@@ -231,7 +234,7 @@ export async function registerRoutes(app: FastifyInstance) {
     const q = req.query as Record<string, string | undefined>;
     const { buffer, filename } = await buildDeck(ctx, {
       sprintId: q.sprintId,
-      meetingIds: q.meetings === undefined ? undefined : q.meetings.split(",").filter((x) => /^[0-9a-f-]{36}$/i.test(x)),
+      meetingIds: q.meetings === undefined ? undefined : q.meetings.split(",").filter((x) => UUID_RE.test(x)),
       sections: (q.sections ?? "cover,alerts,kanban,meetings").split(",").filter(Boolean),
     });
     return sendFile(reply, buffer, filename, "application/vnd.openxmlformats-officedocument.presentationml.presentation");

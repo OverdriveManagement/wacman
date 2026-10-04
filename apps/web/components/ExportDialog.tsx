@@ -129,7 +129,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
               </button>
             </div>
           </div>
-          {types.map((t) => (
+          {types.filter((t) => t.blocks.some((b) => b === "HIGHLIGHTS" || b === "STREAM_STATUS" || b === "TOPICS")).map((t) => (
             <div key={t.id} className="card flex flex-wrap items-center justify-between gap-2 p-4">
               <div>
                 <div className="font-semibold text-ink">

@@ -1,6 +1,6 @@
 import { and, eq, or } from "drizzle-orm";
 import { db } from "./db.js";
-import { accounts, memberships } from "./schema.js";
+import { accounts, memberships, users } from "./schema.js";
 
 export type Role = "ADMIN" | "EDITOR" | "VIEWER";
 
@@ -17,7 +17,13 @@ export interface Ctx {
   accountId: string;
   role: Role; // rôle effectif (ADMIN pour un super-admin)
   viaAssistant?: boolean;
+  /** jeton d'accès en lecture seule : aucune écriture, même un commentaire */
+  readOnly?: boolean;
 }
+
+/** Identifiant UUID strict (évite les erreurs 500 de PostgreSQL sur une valeur mal formée). */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public details?: unknown) {
@@ -39,18 +45,25 @@ export function assertRole(ctx: Ctx, min: Role) {
   if (!can(ctx, min)) throw forbidden();
 }
 
+/** Toute écriture (y compris un commentaire de lecteur) est refusée à un jeton en lecture seule. */
+export function assertWritable(ctx: Ctx) {
+  if (ctx.readOnly) throw forbidden("Ce jeton d'accès est en lecture seule.");
+}
+
 /** Construit le contexte d'un utilisateur sur un compte (par id ou slug). */
 export async function buildCtx(user: SessionUser, accountIdOrSlug: string, viaAssistant = false, readOnly = false): Promise<Ctx> {
-  const isUuid = /^[0-9a-f-]{36}$/i.test(accountIdOrSlug);
+  const byId = isUuid(accountIdOrSlug);
   const [account] = await db
     .select({ id: accounts.id })
     .from(accounts)
-    .where(isUuid ? or(eq(accounts.id, accountIdOrSlug), eq(accounts.slug, accountIdOrSlug)) : eq(accounts.slug, accountIdOrSlug))
+    .where(byId ? or(eq(accounts.id, accountIdOrSlug), eq(accounts.slug, accountIdOrSlug)) : eq(accounts.slug, accountIdOrSlug))
     .limit(1);
   if (!account) throw notFound("Compte client introuvable.");
   if (readOnly) {
-    // jeton en lecture seule : droits de lecteur, même pour un administrateur
-    if (!user.isSuperAdmin) {
+    // jeton en lecture seule : droits de lecteur, même pour un administrateur.
+    // Le drapeau super-administrateur est retiré de l'utilisateur du jeton : on le relit pour l'accès en lecture.
+    const [u] = await db.select({ isSuperAdmin: users.isSuperAdmin }).from(users).where(eq(users.id, user.id)).limit(1);
+    if (!u?.isSuperAdmin) {
       const [m0] = await db
         .select({ role: memberships.role })
         .from(memberships)
@@ -58,7 +71,7 @@ export async function buildCtx(user: SessionUser, accountIdOrSlug: string, viaAs
         .limit(1);
       if (!m0) throw forbidden("Vous n'avez pas accès à ce compte client.");
     }
-    return { user: { ...user, isSuperAdmin: false }, accountId: account.id, role: "VIEWER", viaAssistant };
+    return { user: { ...user, isSuperAdmin: false }, accountId: account.id, role: "VIEWER", viaAssistant, readOnly: true };
   }
   if (user.isSuperAdmin) return { user, accountId: account.id, role: "ADMIN", viaAssistant };
   const [m] = await db

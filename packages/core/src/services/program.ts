@@ -2,10 +2,8 @@ import { z } from "zod";
 import { and, asc, desc, eq, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db } from "../db.js";
 import * as T from "../schema.js";
-import { assertRole, badRequest, notFound, type Ctx } from "../context.js";
+import { assertRole, assertWritable, badRequest, isUuid, notFound, type Ctx } from "../context.js";
 import { audit } from "../audit.js";
-
-const isUuid = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v);
 
 // ---------------------------------------------------------------------------
 // Cartes
@@ -62,9 +60,13 @@ export async function moveCard(ctx: Ctx, cardId: string, input: unknown) {
   for (const k of ["statusId", "streamId"] as const) {
     const v = p.data[k];
     if (v !== undefined && v !== card[k]) {
-      if (v) {
-        const t = k === "statusId" ? T.options : T.streams;
-        const [ok] = isUuid(v) ? await db.select({ id: t.id }).from(t).where(and(eq(t.id, v), eq(t.accountId, ctx.accountId))) : [];
+      if (v !== null) {
+        // le statut doit être une colonne du kanban de ce compte, le stream un stream de ce compte
+        const [ok] = !isUuid(v)
+          ? []
+          : k === "statusId"
+            ? await db.select({ id: T.options.id }).from(T.options).where(and(eq(T.options.id, v), eq(T.options.accountId, ctx.accountId), eq(T.options.kind, "CARD_STATUS")))
+            : await db.select({ id: T.streams.id }).from(T.streams).where(and(eq(T.streams.id, v), eq(T.streams.accountId, ctx.accountId)));
         if (!ok) throw badRequest(`Référence invalide : ${k}`);
       }
       data[k] = v;
@@ -120,6 +122,8 @@ export async function switchSprint(ctx: Ctx, input: unknown) {
   const from = sps.find((s) => s.id === p.data.fromSprintId);
   const to = sps.find((s) => s.id === p.data.toSprintId);
   if (!from || !to) throw notFound("Sprint introuvable.");
+  if (from.id === to.id) throw badRequest("Choisissez un sprint suivant différent du sprint en cours.");
+  if (from.state !== "CURRENT") throw badRequest(`${from.name} n'est pas le sprint en cours.`);
   const statuses = await db
     .select()
     .from(T.options)
@@ -138,7 +142,11 @@ export async function switchSprint(ctx: Ctx, input: unknown) {
         ),
       )
       .returning({ id: T.cards.id });
-    await tx.update(T.sprints).set({ state: "DONE" }).where(eq(T.sprints.id, from.id));
+    // un seul sprint en cours : tout autre sprint « en cours » du compte est clos
+    await tx
+      .update(T.sprints)
+      .set({ state: "DONE" })
+      .where(and(eq(T.sprints.accountId, ctx.accountId), eq(T.sprints.state, "CURRENT")));
     await tx.update(T.sprints).set({ state: "CURRENT" }).where(eq(T.sprints.id, to.id));
     await audit(ctx, "sprint", to.id, "switch", `Bascule de ${from.name} vers ${to.name} : ${res.length} carte(s) reportée(s)`, {}, tx);
     return res.length;
@@ -198,7 +206,10 @@ export function stripDecisions(text: string): string {
 
 export const meetingCreateSchema = z.object({
   meetingTypeId: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((v) => !Number.isNaN(Date.parse(`${v}T12:00:00Z`)) && new Date(`${v}T12:00:00Z`).toISOString().startsWith(v), "Date inexistante"),
   mode: z.enum(["empty", "previous"]).default("empty"),
 });
 
@@ -241,11 +252,21 @@ export async function createMeeting(ctx: Ctx, input: unknown) {
           previous.highlights.map((h) => ({ ...base, title: h.title, emoji: h.emoji, detail: h.detail, streamId: h.streamId, typeId: h.typeId, authorId: h.authorId, order: h.order })),
         );
       }
-      const st = previous.statuses.filter((s) => s.streamId || s.progress || s.alerts);
-      if (blocks.includes("STREAM_STATUS") && st.length) {
-        await tx.insert(T.streamStatuses).values(
-          st.map((s) => ({ ...base, streamId: s.streamId, statusIds: s.statusIds, progress: s.progress, alerts: s.alerts, order: s.order })),
-        );
+      if (blocks.includes("STREAM_STATUS")) {
+        // lignes reprises, sauf celles d'un stream désactivé ; lignes vides ajoutées pour les streams du modèle absents
+        const streams = await tx.select().from(T.streams).where(eq(T.streams.accountId, ctx.accountId));
+        const active = new Set(streams.filter((s) => s.active).map((s) => s.id));
+        const st = previous.statuses.filter((s) => (s.streamId ? active.has(s.streamId) : s.progress || s.alerts));
+        const present = new Set(st.map((s) => s.streamId));
+        const missing = streams
+          .filter((s) => s.active && s.inStatusTemplate && !present.has(s.id))
+          .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+        const maxOrder = Math.max(0, ...st.map((s) => s.order));
+        const rows = [
+          ...st.map((s) => ({ ...base, streamId: s.streamId, statusIds: s.statusIds, progress: s.progress, alerts: s.alerts, order: s.order })),
+          ...missing.map((s, i) => ({ ...base, streamId: s.id, statusIds: [] as string[], progress: "", alerts: "", order: maxOrder + i + 1 })),
+        ];
+        if (rows.length) await tx.insert(T.streamStatuses).values(rows);
       }
       if (blocks.includes("TOPICS") && previous.topics.length) {
         await tx.insert(T.topics).values(
@@ -306,10 +327,12 @@ export async function listComments(ctx: Ctx, entityType: string, entityId: strin
     .orderBy(asc(T.comments.createdAt));
 }
 
-export async function addComment(ctx: Ctx, entityType: string, entityId: string, body: string) {
+export async function addComment(ctx: Ctx, entityType: string, entityId: string, body: unknown) {
   assertRole(ctx, "VIEWER");
+  assertWritable(ctx);
   const t = COMMENTABLE[entityType];
   if (!t) throw badRequest("Commentaires non disponibles pour cet élément.");
+  if (body !== undefined && body !== null && typeof body !== "string") throw badRequest("Commentaire invalide.");
   const text = (body ?? "").trim();
   if (!text) throw badRequest("Commentaire vide.");
   if (text.length > 10000) throw badRequest("Commentaire trop long.");
@@ -322,6 +345,7 @@ export async function addComment(ctx: Ctx, entityType: string, entityId: string,
 }
 
 export async function deleteComment(ctx: Ctx, commentId: string) {
+  assertWritable(ctx);
   if (!isUuid(commentId)) throw notFound();
   const [c] = await db
     .select()
@@ -342,5 +366,5 @@ export async function listAudit(ctx: Ctx, filter: { entityType?: string; entityI
     .from(T.auditLogs)
     .where(and(...conds))
     .orderBy(desc(T.auditLogs.createdAt))
-    .limit(Math.min(filter.limit ?? 100, 500));
+    .limit(Number.isFinite(filter.limit) && (filter.limit as number) > 0 ? Math.min(Math.floor(filter.limit as number), 500) : 100);
 }

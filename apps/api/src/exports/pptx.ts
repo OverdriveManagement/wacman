@@ -1,6 +1,6 @@
 import PptxGenJS from "pptxgenjs";
-import { getMeeting, type Ctx } from "@wacman/core";
-import { loadAccountData, latestMeetings, frDate, plain } from "./data.js";
+import { getMeeting, markupToPlain, parseLine, tokenizeInline, type Ctx, type MarkToken } from "@wacman/core";
+import { loadAccountData, latestMeetings, frDate } from "./data.js";
 
 /**
  * Export PowerPoint au gabarit Wifirst (16:9, 10 x 5,625 pouces) :
@@ -45,48 +45,58 @@ type Run = { text: string; options?: PptxGenJS.TextPropsOptions };
  * **gras**, *italique*, __souligné__, ~~barré~~, ==surligné==, `code`, [lien](url) ;
  * puces « - », cases « [ ] » / « [x] », intertitres « ### ».
  */
-const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|==[^=]+==|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*\s](?:[^*]*[^*\s])?\*)/g;
-function runs(md: string, base: PptxGenJS.TextPropsOptions = {}): Run[] {
+const STYLE: Record<string, PptxGenJS.TextPropsOptions> = {
+  b: { bold: true },
+  i: { italic: true },
+  u: { underline: { style: "sng" } },
+  s: { strike: "sngStrike" },
+  mark: { highlight: "FDE68A" },
+};
+
+function tokenRuns(tokens: MarkToken[], opts: PptxGenJS.TextPropsOptions, out: Run[]) {
+  for (const k of tokens) {
+    if (k.t === "text") out.push({ text: k.v, options: opts });
+    else if (k.t === "code") out.push({ text: k.v, options: { ...opts, fontFace: "Consolas" } });
+    else if (k.t === "link") tokenRuns(k.children, { ...opts, color: C.blue }, out);
+    else tokenRuns(k.children, { ...opts, ...STYLE[k.t] }, out);
+  }
+}
+
+/** Segments PowerPoint d'un texte saisi, avec mise en forme ; max coupe proprement au-delà de max caractères. */
+function runs(md: string, base: PptxGenJS.TextPropsOptions = {}, max = Infinity): Run[] {
   const out: Run[] = [];
-  const lines = (md ?? "").split("\n");
-  lines.forEach((raw, li) => {
-    let line = raw;
-    let lineOpts: PptxGenJS.TextPropsOptions = {};
-    if (/^\s*#{1,3}\s+/.test(line)) {
-      line = line.replace(/^\s*#{1,3}\s+/, "");
-      lineOpts = { bold: true };
-    }
-    line = line
-      .replace(/^(\s*)[-•*]\s+(?!\*)/, "$1• ")
-      .replace(/^(\s*)\[[xX]\]\s+/, "$1☑ ")
-      .replace(/^(\s*)\[ \]\s+/, "$1☐ ");
+  const lines = (md ?? "").replace(/\r/g, "").replace(/\s+$/, "").split("\n");
+  let used = 0;
+  for (let li = 0; li < lines.length && used < max; li++) {
+    const l = parseLine(lines[li]);
+    const lineOpts: PptxGenJS.TextPropsOptions = { ...base, ...(l.kind === "heading" ? { bold: true } : {}) };
+    const prefix = l.kind === "bullet" ? "• " : l.kind === "check" ? (l.done ? "☑ " : "☐ ") : l.kind === "number" ? `${l.n}. ` : "";
     const parts: Run[] = [];
-    let last = 0;
-    let m: RegExpExecArray | null;
-    const re = new RegExp(INLINE.source, "g");
-    const push = (text: string, o: PptxGenJS.TextPropsOptions = {}) => text && parts.push({ text, options: { ...base, ...lineOpts, ...o } });
-    while ((m = re.exec(line))) {
-      push(line.slice(last, m.index));
-      const tok = m[0];
-      if (tok.startsWith("**")) push(tok.slice(2, -2), { bold: true });
-      else if (tok.startsWith("__")) push(tok.slice(2, -2), { underline: { style: "sng" } });
-      else if (tok.startsWith("~~")) push(tok.slice(2, -2), { strike: "sngStrike" });
-      else if (tok.startsWith("==")) push(tok.slice(2, -2), { highlight: "FDE68A" });
-      else if (tok.startsWith("`")) push(tok.slice(1, -1), { fontFace: "Consolas" });
-      else if (tok.startsWith("[")) push(tok.replace(/\[([^\]]+)\]\([^)]+\)/, "$1"), { color: C.blue });
-      else push(tok.slice(1, -1), { italic: true });
-      last = m.index + tok.length;
+    if (prefix) parts.push({ text: l.indent + prefix, options: lineOpts });
+    tokenRuns(tokenizeInline(l.kind === "text" ? lines[li] : l.text), lineOpts, parts);
+    if (!parts.length) parts.push({ text: " ", options: lineOpts });
+    for (const p of parts) {
+      if (used >= max) break;
+      if (used + p.text.length > max) {
+        out.push({ text: `${p.text.slice(0, Math.max(0, max - used - 1)).trimEnd()}…`, options: p.options });
+        used = max;
+        break;
+      }
+      out.push(p);
+      used += p.text.length;
     }
-    push(line.slice(last));
-    if (!parts.length) parts.push({ text: " ", options: { ...base } });
-    parts[parts.length - 1].options = { ...parts[parts.length - 1].options, breakLine: li < lines.length - 1 };
-    out.push(...parts);
-  });
+    if (used < max && li < lines.length - 1) {
+      out[out.length - 1].options = { ...out[out.length - 1].options, breakLine: true };
+      used += 1;
+    }
+  }
+  if (!out.length) out.push({ text: " ", options: { ...base } });
   return out;
 }
 
+/** Texte brut tronqué (titres, libellés courts). */
 const clip = (s: string, n: number) => {
-  const t = plain(s ?? "").replace(/\s+\n/g, "\n").trim();
+  const t = markupToPlain(s ?? "").replace(/\s+\n/g, "\n").trim();
   return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t;
 };
 
@@ -208,7 +218,7 @@ export async function buildDeck(ctx: Ctx, opts: { sprintId?: string; meetingIds?
           s.addText(`${h.emoji ? h.emoji + "  " : ""}${h.title}`, { x: x + 0.12, y: y + 0.1, w: 2.7, h: 0.4, fontFace: BODY_FONT, fontSize: 9, bold: true, color: C.blue, margin: 0, valign: "top" });
           const meta = [d.streamLabel(h.streamId, false), d.optLabel(h.typeId, false)].filter(Boolean).join("  |  ");
           if (meta) s.addText(meta, { x: x + 0.12, y: y + 0.5, w: 2.7, h: 0.18, fontFace: BODY_FONT, fontSize: 6.5, bold: true, color: C.ocre, margin: 0 });
-          s.addText(runs(clip(h.detail, 420), { fontFace: BODY_FONT, fontSize: 7, color: C.text }), { x: x + 0.12, y: y + 0.72, w: 2.7, h: 1.05, margin: 0, valign: "top" });
+          s.addText(runs(h.detail, { fontFace: BODY_FONT, fontSize: 7, color: C.text }, 420), { x: x + 0.12, y: y + 0.72, w: 2.7, h: 1.05, margin: 0, valign: "top" });
         });
       }
     }
@@ -226,7 +236,7 @@ export async function buildDeck(ctx: Ctx, opts: { sprintId?: string; meetingIds?
         { text: d.streamLabel(c.streamId, false) },
         { text: d.contactName(c.ownerId) },
         { text: frDate(c.dueDate) },
-        { text: clip(c.alertsNote, 330) },
+        { text: runs(c.alertsNote, {}, 330) },
       ]);
     }
     if (!rows.length) rows.push([{ text: "" }, { text: "Aucune carte en vigilance ou en alerte." }, { text: "" }, { text: "" }, { text: "" }, { text: "" }]);
@@ -269,7 +279,7 @@ export async function buildDeck(ctx: Ctx, opts: { sprintId?: string; meetingIds?
           const meta = [d.optLabel(c.statusId, false), d.contactName(c.ownerId), c.dueDate ? `échéance ${frDate(c.dueDate)}` : ""].filter(Boolean).join("  |  ");
           s.addText(meta, { x: x + 0.15, y: y + 0.29, w: 4.2, h: 0.16, fontFace: BODY_FONT, fontSize: 6.5, color: C.muted, margin: 0 });
           const body = c.alertLevelId ? c.alertsNote || c.progressNote : c.progressNote || c.nextSteps || c.description;
-          s.addText(clip(body, 230), {
+          s.addText(runs(body, {}, 230), {
             x: x + 0.15,
             y: y + 0.47,
             w: 4.25,
@@ -383,13 +393,13 @@ export async function buildDeck(ctx: Ctx, opts: { sprintId?: string; meetingIds?
         const rows: Cell[][] = m.statuses.map((r) => [
           { text: d.streamLabel(r.streamId), options: { bold: true } },
           { text: r.statusIds.map((id) => d.optLabel(id)).join("\n") },
-          { text: runs(clip(r.progress, 500)) },
-          { text: runs(clip(r.alerts, 500)) },
+          { text: runs(r.progress, {}, 500) },
+          { text: runs(r.alerts, {}, 500) },
         ]);
         table(
           "Avancement des streams, alertes et prérequis",
           `${m.meetingType.name} du ${frDate(m.date)}`,
-          [head("Stream"), head(st.statusLabel ?? "Statut"), head(st.progressLabel ?? "Avancement"), head(st.alertsLabel ?? "Alertes & prérequis")],
+          [head("Stream"), head(st.statusLabel || "Statut"), head(st.progressLabel || "Avancement"), head(st.alertsLabel || "Alertes & prérequis")],
           rows,
           [1.9, 1.55, 2.86, 2.86],
         );
@@ -399,13 +409,13 @@ export async function buildDeck(ctx: Ctx, opts: { sprintId?: string; meetingIds?
           { text: `${t.emoji ? t.emoji + " " : ""}${t.title}`, options: { bold: true } },
           { text: d.optLabel(t.themeId, false) },
           { text: d.optLabel(t.natureId) },
-          { text: runs(clip(t.description, 520)) },
-          { text: runs(clip(t.decisionRequest, 420)) },
+          { text: runs(t.description, {}, 520) },
+          { text: runs(t.decisionRequest, {}, 420) },
         ]);
         table(
           `${m.meetingType.name} du ${frDate(m.date)}`,
           `${m.topics.length} sujet(s), dans l'ordre de passage`,
-          [head("Sujet"), head("Thématique"), head("Nature"), head("Description"), head(st.decisionLabel ?? "Arbitrage ou décision demandée")],
+          [head("Sujet"), head("Thématique"), head("Nature"), head("Description"), head(st.decisionLabel || "Arbitrage ou décision demandée")],
           rows,
           [1.75, 0.8, 0.95, 3.05, 2.62],
         );

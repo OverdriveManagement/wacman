@@ -1,7 +1,7 @@
 "use client";
 
-import useSWR from "swr";
-import { useMemo } from "react";
+import useSWR, { useSWRConfig } from "swr";
+import { useCallback, useMemo } from "react";
 import { fetcher } from "./api";
 import { useEditMode } from "@/components/AccountContext";
 import type { AccountSummary, Bootstrap, Option, OptionKind, User } from "./types";
@@ -25,7 +25,20 @@ export function useAccount(slug: string) {
     const isDone = (statusId: string | null) => !!(statusId && opt.get(statusId)?.meta?.done);
     return { opt, str, spr, ctc, byKind, canEdit, isAdmin, currentSprint, isDone };
   }, [swr.data]);
-  return { ...swr, ...helpers, base: `/api/accounts/${slug}` };
+  const base = `/api/accounts/${slug}`;
+  const { mutate: globalMutate } = useSWRConfig();
+  const swrMutate = swr.mutate;
+  // rafraîchir la configuration du compte rafraîchit aussi les cartes, séances et tableaux de bord affichés
+  // (bascule de sprint, suppression d'un stream ou d'un sprint : les cartes changent côté serveur)
+  const mutate = useCallback(
+    async (...args: Parameters<typeof swrMutate>) => {
+      const r = await swrMutate(...args);
+      if (!args.length) await globalMutate((k) => typeof k === "string" && k.startsWith(`${base}/`));
+      return r;
+    },
+    [swrMutate, globalMutate, base],
+  ) as typeof swrMutate;
+  return { ...swr, ...helpers, mutate, base };
 }
 
 export type AccountCtx = ReturnType<typeof useAccount>;

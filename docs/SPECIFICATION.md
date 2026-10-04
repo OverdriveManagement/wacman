@@ -4,7 +4,7 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt.
 
-Version courante : **V1.3** (4 octobre 2026).
+Version courante : **V1.4** (4 octobre 2026).
 
 ---
 
@@ -26,17 +26,17 @@ Version courante : **V1.3** (4 octobre 2026).
 
 ### 2.1 Connexion
 1. E-mail et mot de passe.
-2. Code à 6 chiffres envoyé par e-mail (Resend), valable 10 minutes, 5 essais maximum.
+2. Code à 6 chiffres envoyé par e-mail (Resend), valable 10 minutes, 5 essais maximum (comptés avant vérification, y compris pour des essais simultanés).
 3. Session de 14 jours (cookie sécurisé, HttpOnly). Changer son mot de passe ou être désactivé ferme toutes les sessions.
 
-Mot de passe : 10 caractères minimum, au moins une lettre et un chiffre. Les tentatives de connexion sont limitées (8 par tranche de 10 minutes et par adresse).
+Mot de passe : 10 caractères minimum, au moins une lettre et un chiffre. Les tentatives de connexion sont limitées (8 par tranche de 10 minutes et par adresse IP et e-mail, et 20 par tranche de 30 minutes pour un même e-mail quelle que soit l'adresse IP). Après connexion, seul un retour vers une page de WacMan est accepté.
 
-**Mot de passe oublié** (lien sur la page de connexion) : l'utilisateur saisit son e-mail et reçoit un code à 6 chiffres (valable 10 minutes, 5 essais), puis choisit un nouveau mot de passe ; toutes ses sessions ouvertes sont fermées. La réponse est identique que l'e-mail existe ou non, pour ne pas révéler les comptes. Demandes limitées (6 par adresse IP et 4 par e-mail par tranche de 10 minutes).
+**Mot de passe oublié** (lien sur la page de connexion) : l'utilisateur saisit son e-mail et reçoit un code à 6 chiffres (valable 10 minutes, 5 essais), puis choisit un nouveau mot de passe ; toutes ses sessions ouvertes sont fermées. La réponse est identique que l'e-mail existe ou non, pour ne pas révéler les comptes. Une demande de réinitialisation n'annule pas une connexion en cours. Demandes limitées (6 par adresse IP et 4 par e-mail par tranche de 10 minutes).
 
 ### 2.2 Jetons d'accès personnels
 Menu utilisateur, « Connecteur Claude et jetons » : chaque utilisateur crée des jetons (nom, durée 30 jours, 90 jours, 1 an ou sans limite, option lecture seule) qui permettent à Claude ou à un script d'agir avec ses droits.
 - Le jeton (préfixe `wac_`) n'est affiché qu'une fois ; seul son hachage est conservé. Liste des jetons actifs avec date de dernière utilisation, révocation immédiate.
-- Un jeton en lecture seule donne les droits de lecteur, même à un administrateur.
+- Un jeton en lecture seule donne les droits de lecteur, même à un administrateur (un super-administrateur lit tous les comptes), et ne peut rien modifier, pas même un commentaire.
 - Un jeton ne permet ni de créer d'autres jetons, ni de changer de mot de passe, ni d'utiliser l'assistant intégré : ces actions demandent une session ouverte dans le navigateur.
 - 20 jetons actifs au plus par utilisateur.
 
@@ -160,7 +160,7 @@ Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Par
 - **Types de séance** : nom, picto, fréquence, blocs, libellés de colonnes, cadrage, mode d'emploi, visibilité.
 - **Annuaire** : contacts du compte (porteurs, auteurs), reliés automatiquement à un utilisateur de même e-mail ; un contact n'a pas besoin d'accès.
 - **Accès** : membres et rôles.
-- **Données** : exports.
+- **Données** : exports. La sauvegarde complète du compte (super-administrateur) contient aussi les commentaires et l'état actif des types de séance ; la réimporter restitue le compte à l'identique.
 
 ## 7. Assistant Claude
 - Bouton « Assistant Claude » (barre latérale, ou barre basse sur mobile). Panneau de conversation avec réponses affichées au fil de l'eau et étapes visibles (lecture, création, modification…).
@@ -187,7 +187,15 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 
 ## 9. Robustesse
 - Une erreur d'affichage dans une page d'un compte est contenue : la navigation reste disponible, avec les boutons Réessayer et Recharger.
+- Une coupure passagère du réseau ou un redéploiement ne remplace pas l'écran : la page en cours, ses fenêtres et ses saisies restent en place.
+- Saisie : un double clic ou une touche Entrée maintenue ne crée pas deux fois le même élément ; une date se saisit puis se valide (OK, Entrée ou clic à l'extérieur) au lieu d'être enregistrée à chaque chiffre ; un rafraîchissement venu du serveur n'écrase pas un texte en cours de frappe ; des clics rapides sur des cases à cocher ou des étiquettes multiples sont tous pris en compte.
+- Fenêtres : Échap ferme seulement la fenêtre du dessus (une confirmation par-dessus une carte).
+- Mobile : le glisser d'une carte du kanban se fait par appui long, le défilement de la page restant possible ; un glisser de barre du planning interrompu par le navigateur est abandonné sans rien enregistrer.
+- Les données envoyées sont contrôlées côté serveur : dates réelles (pas de 30 février), début de sprint avant sa fin, une seule séance d'un type par date (y compris en changeant la date), un seul sprint en cours à la fois, statut de carte pris dans les colonnes du kanban, utilisateur relié à un contact ayant accès au compte ; une valeur mal formée renvoie un message clair et jamais une erreur interne.
+- Supprimer un statut de stream le retire des séances qui le portaient. Une séance recopiée depuis la précédente ne reprend pas les streams désactivés et ajoute les streams du modèle créés entre-temps.
+- Les erreurs techniques ne sont jamais renvoyées en détail à l'assistant ni au connecteur Claude. « Arrêter » l'assistant stoppe aussi les actions qu'il n'a pas encore lancées.
 - Les références saisies (statut, niveau d'alerte, type, criticité…) sont contrôlées : identifiant valide, appartenant au compte et pris dans la bonne liste de valeurs.
+- Mise en forme : les mêmes règles s'appliquent à l'écran, au compte rendu copié, au PDF, à Excel et à PowerPoint (gras dans l'italique et inversement, adresses avec parenthèses ; « 2*x + 3*y » ou « nom__de__fichier » restent du texte). PowerPoint conserve désormais gras, italique, souligné, surligné et cases à cocher.
 - Application installable sur mobile et ordinateur (icône WacMan, ouverture plein écran).
 
 ## 10. Hors périmètre
@@ -215,3 +223,4 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 | 04/10/2026 | Créer un mode édition : boutons d'édition des modèles visibles seulement dans ce mode ; cacher au maximum les boutons d'édition des cartes et éléments (textes toujours éditables, déplacement des cartes toujours possible) ; pas de liste déroulante ni d'étiquette vide visibles, un clic sur l'étiquette pour la modifier et une pastille discrète pour une valeur vide ; ajout de carte plus discret ; menu de gauche rétractable | V1.3 : mode édition des administrateurs avec bandeau (1) ; étiquettes cliquables et pastilles à la place des listes déroulantes (cartes, faits marquants, statuts des streams, sujets, gouvernance) ; « + Ajouter » discret au survol ; menu de gauche réduit aux pictos (1, 4.1, 4.2) |
 | 04/10/2026 | Étiquette sur les cartes du kanban : nombre de jours depuis la dernière modification du contenu, couleur et picto selon l'ancienneté, paramétrable par l'administrateur (par défaut 7 jours, 14 jours, plus ancien) ; reprendre les dates de dernière modification des cartes La Poste depuis Notion | Étiquette de fraîcheur, filtre « Sans mise à jour », paliers réglables depuis le kanban et les paramètres (4.1, 4.2, 6) ; date de modification du contenu suivie à part du simple réordonnancement ; dates Notion appliquées au compte La Poste ; colonne « Contenu modifié le » dans l'export Excel (8) |
 | 04/10/2026 | Améliorer « Copier le CR » pour retrouver la mise en forme du CR envoyé dans Gmail pour le COPROJ LP (la copie actuelle est sans mise en forme) | Copie en texte enrichi reprenant la présentation de l'e-mail du 03/10/2026 (titres numérotés, tableaux à en-tête bleu, statuts colorés), pour tous les types de séance, avec la version texte en secours (4.3) |
+| 04/10/2026 | Faire un tour général de tout ce qui a été développé, tout re-tester et corriger les bugs dans la foulée | V1.4 : revue de code complète (API, écrans, exports) et environ 40 correctifs ; 8 suites de tests rejouées, dont 2 nouvelles (correctifs API, tour de tous les écrans en sombre, clair, mobile et lecteur). Sécurité : jeton en lecture seule sans aucune écriture, jeton court de l'assistant limité à l'assistant, essais de code comptés avant vérification, limite de connexion par e-mail, retour après connexion limité au site, aucun code de connexion dans les journaux en production. Données : sauvegarde complète avec commentaires, statuts supprimés retirés des séances, séance recopiée alignée sur les streams actifs, contrôles de dates et de références. Écrans : glisser tactile du kanban et du planning, date validée en une fois, double envoi impossible, clics rapides pris en compte, Échap sur la seule fenêtre du dessus, carte archivée retirée, carte créée depuis « Sans sprint » sans sprint, ouverture d'une carte au clavier, titres longs coupés, sélecteur de séance lisible sur mobile, compteur « à échéance sous 15 jours » exact. Mise en forme : règles uniques partagées par l'écran et les exports, PowerPoint mis en forme, barre d'outils corrigée (gras et italique combinés, listes sur ligne vide, Ctrl+K sans ouvrir la recherche), « Copier le CR » attend la fin d'une saisie en cours (2, 6, 9) |

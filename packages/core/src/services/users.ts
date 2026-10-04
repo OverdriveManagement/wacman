@@ -1,10 +1,10 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { createHash, randomInt, randomUUID } from "node:crypto";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, sql } from "drizzle-orm";
 import { db } from "../db.js";
 import * as T from "../schema.js";
-import { assertRole, badRequest, forbidden, notFound, HttpError, type Ctx, type SessionUser } from "../context.js";
+import { assertRole, badRequest, forbidden, notFound, HttpError, isUuid, type Ctx, type SessionUser } from "../context.js";
 import { audit } from "../audit.js";
 
 const OTP_TTL_MIN = 10;
@@ -52,14 +52,18 @@ export async function startLogin(email: string, password: string) {
 /** Étape 2 : vérification du code reçu par e-mail. */
 export async function verifyLogin(challengeId: string, code: string) {
   const invalid = new HttpError(401, "Code invalide ou expiré. Recommencez la connexion.");
-  if (!/^[0-9a-f-]{36}$/i.test(challengeId)) throw invalid;
-  const [ch] = await db.select().from(T.loginChallenges).where(eq(T.loginChallenges.id, challengeId));
-  if (!ch || ch.purpose !== "LOGIN" || ch.consumedAt || ch.expiresAt < new Date()) throw invalid;
+  if (!isUuid(challengeId)) throw invalid;
+  // l'essai est compté AVANT la comparaison, en une seule requête : des essais simultanés ne contournent pas la limite
+  const [ch] = await db
+    .update(T.loginChallenges)
+    .set({ attempts: sql`${T.loginChallenges.attempts} + 1` })
+    .where(and(eq(T.loginChallenges.id, challengeId), isNull(T.loginChallenges.consumedAt), lt(T.loginChallenges.attempts, OTP_MAX_ATTEMPTS)))
+    .returning();
+  if (!ch || ch.purpose !== "LOGIN" || ch.expiresAt < new Date()) throw invalid;
   const [u] = await db.select().from(T.users).where(eq(T.users.id, ch.userId));
-  if (!u || !u.active || ch.attempts >= OTP_MAX_ATTEMPTS) throw invalid;
+  if (!u || !u.active) throw invalid;
   if (sha(`${ch.userId}:${code.trim()}`) !== ch.codeHash) {
-    await db.update(T.loginChallenges).set({ attempts: ch.attempts + 1 }).where(eq(T.loginChallenges.id, ch.id));
-    throw new HttpError(401, ch.attempts + 1 >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Recommencez la connexion." : "Code incorrect.");
+    throw new HttpError(401, ch.attempts >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Recommencez la connexion." : "Code incorrect.");
   }
   await db.update(T.loginChallenges).set({ consumedAt: new Date() }).where(eq(T.loginChallenges.id, ch.id));
   const [user] = await db.update(T.users).set({ lastLoginAt: new Date() }).where(eq(T.users.id, ch.userId)).returning();
@@ -77,10 +81,11 @@ export async function verifyLogin(challengeId: string, code: string) {
 export async function startPasswordReset(email: string) {
   const [user] = await db.select().from(T.users).where(eq(T.users.email, email.trim().toLowerCase()));
   if (!user || !user.active) return { challengeId: randomUUID(), code: null, user: null };
+  // seules les demandes de réinitialisation en cours sont annulées : une connexion en cours reste valable
   await db
     .update(T.loginChallenges)
     .set({ consumedAt: new Date() })
-    .where(and(eq(T.loginChallenges.userId, user.id), isNull(T.loginChallenges.consumedAt)));
+    .where(and(eq(T.loginChallenges.userId, user.id), eq(T.loginChallenges.purpose, "RESET"), isNull(T.loginChallenges.consumedAt)));
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const [challenge] = await db
     .insert(T.loginChallenges)
@@ -92,14 +97,17 @@ export async function startPasswordReset(email: string) {
 /** Termine la réinitialisation : vérifie le code, change le mot de passe et ferme les sessions ouvertes. */
 export async function completePasswordReset(challengeId: string, code: string, password: string) {
   const invalid = new HttpError(400, "Code invalide ou expiré. Refaites une demande.");
-  if (!/^[0-9a-f-]{36}$/i.test(challengeId)) throw invalid;
+  if (!isUuid(challengeId)) throw invalid;
   const pw = passwordSchema.safeParse(password);
   if (!pw.success) throw badRequest(`Mot de passe trop faible : ${pw.error.issues.map((i) => i.message).join(", ")}`);
-  const [ch] = await db.select().from(T.loginChallenges).where(eq(T.loginChallenges.id, challengeId));
-  if (!ch || ch.purpose !== "RESET" || ch.consumedAt || ch.expiresAt < new Date() || ch.attempts >= OTP_MAX_ATTEMPTS) throw invalid;
+  const [ch] = await db
+    .update(T.loginChallenges)
+    .set({ attempts: sql`${T.loginChallenges.attempts} + 1` })
+    .where(and(eq(T.loginChallenges.id, challengeId), isNull(T.loginChallenges.consumedAt), lt(T.loginChallenges.attempts, OTP_MAX_ATTEMPTS)))
+    .returning();
+  if (!ch || ch.purpose !== "RESET" || ch.expiresAt < new Date()) throw invalid;
   if (sha(`reset:${ch.userId}:${code.trim()}`) !== ch.codeHash) {
-    await db.update(T.loginChallenges).set({ attempts: ch.attempts + 1 }).where(eq(T.loginChallenges.id, ch.id));
-    throw new HttpError(400, ch.attempts + 1 >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Refaites une demande." : "Code incorrect.");
+    throw new HttpError(400, ch.attempts >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Refaites une demande." : "Code incorrect.");
   }
   const [u] = await db.select().from(T.users).where(eq(T.users.id, ch.userId));
   if (!u || !u.active) throw invalid;
@@ -185,7 +193,7 @@ export async function addMember(ctx: Ctx, input: unknown) {
 }
 
 async function findMembership(ctx: Ctx, membershipId: string) {
-  if (!/^[0-9a-f-]{36}$/i.test(membershipId)) throw notFound();
+  if (!isUuid(membershipId)) throw notFound();
   const [row] = await db
     .select({ m: T.memberships, u: T.users })
     .from(T.memberships)
@@ -241,6 +249,7 @@ export const userAdminUpdateSchema = z.object({
 
 export async function adminUpdateUser(actor: SessionUser, userId: string, input: unknown) {
   if (!actor.isSuperAdmin) throw forbidden();
+  if (!isUuid(userId)) throw notFound("Utilisateur introuvable.");
   const p = userAdminUpdateSchema.safeParse(input);
   if (!p.success) throw badRequest("Données invalides.", p.error.flatten());
   if (userId === actor.id && (p.data.active === false || p.data.isSuperAdmin === false)) {

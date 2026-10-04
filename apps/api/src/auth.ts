@@ -77,6 +77,9 @@ export async function resolveUser(req: FastifyRequest): Promise<SessionUser | nu
   if (auth?.startsWith("Bearer ")) {
     const token = auth.slice(7).trim();
     if (token.startsWith(TOKEN_PREFIX)) return userFromApiToken(req, token);
+    // le jeton court de l'assistant ne vaut que pour l'appel de l'assistant (pas de session complète)
+    const path = req.url.split("?")[0];
+    if (req.method !== "POST" || !/^\/api\/accounts\/[^/]+\/assistant$/.test(path)) return null;
     return userFromToken(token, "assistant");
   }
   return null;
@@ -102,6 +105,7 @@ const attempts = new Map<string, { n: number; until: number }>();
 
 export function throttle(key: string, max = 8, windowMs = 10 * 60_000) {
   const now = Date.now();
+  if (attempts.size > 5000) for (const [k, v] of attempts) if (v.until < now) attempts.delete(k);
   const cur = attempts.get(key);
   if (!cur || cur.until < now) {
     attempts.set(key, { n: 1, until: now + windowMs });

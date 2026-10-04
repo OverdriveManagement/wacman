@@ -59,6 +59,7 @@ async function callTool(user: SessionUser, readOnly: boolean, name: string, args
 }
 
 async function handleOne(msg: JsonRpc, user: SessionUser, readOnly: boolean): Promise<Record<string, unknown> | null> {
+  if (!msg || typeof msg !== "object" || Array.isArray(msg)) return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Requête JSON-RPC invalide." } };
   const id = msg.id ?? null;
   const isNotification = msg.id === undefined;
   const ok = (result: unknown) => ({ jsonrpc: "2.0", id, result });
@@ -87,7 +88,8 @@ async function handleOne(msg: JsonRpc, user: SessionUser, readOnly: boolean): Pr
         const text = JSON.stringify(out ?? { ok: true }, null, 1);
         return ok({ content: [{ type: "text", text: text.length > 100_000 ? `${text.slice(0, 100_000)}\n[contenu tronqué]` : text }] });
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
+        // erreurs métier détaillées ; erreurs techniques masquées (pas de requête SQL dans la réponse)
+        const message = e instanceof HttpError ? e.message : "erreur technique, réessayez ou contactez l'administrateur";
         const details = e instanceof HttpError && e.details ? ` ${JSON.stringify(e.details)}` : "";
         return ok({ content: [{ type: "text", text: `Erreur : ${message}${details}` }], isError: true });
       }
@@ -109,8 +111,12 @@ async function handle(req: FastifyRequest, reply: FastifyReply) {
     return reply.code(401).header("WWW-Authenticate", 'Bearer realm="wacman"').send({ jsonrpc: "2.0", id: null, error: { code: -32001, message: "Jeton d'accès WacMan manquant, invalide ou révoqué." } });
   }
   const readOnly = !!req.readOnlyToken;
-  const body = req.body as JsonRpc | JsonRpc[];
+  const body = req.body as JsonRpc | JsonRpc[] | null | undefined;
+  if (body === null || body === undefined || typeof body !== "object") {
+    return reply.code(400).send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Corps JSON-RPC attendu." } });
+  }
   const batch = Array.isArray(body);
+  if (batch && !body.length) return reply.code(400).send({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Lot JSON-RPC vide." } });
   const msgs = batch ? body : [body];
   const out: Record<string, unknown>[] = [];
   for (const m of msgs) {

@@ -2,6 +2,7 @@
 
 import { forwardRef, useImperativeHandle, useRef, type KeyboardEvent, type TextareaHTMLAttributes } from "react";
 import { Markdown } from "./Markdown";
+import { tokenizeInline, tokensToText } from "@/lib/markup";
 
 /**
  * Zone de texte avec barre de mise en forme, sur le modèle des éditeurs du marché (Notion, Jira, Teams).
@@ -37,29 +38,45 @@ export function applyTool(value: string, start: number, end: number, tool: Tool)
   const a = tool.action;
   if (a.kind === "wrap") {
     const sel = value.slice(start, end);
+    const mk = a.before[0];
+    // un marqueur n'est « exactement » celui de l'outil que s'il n'est pas prolongé par le même caractère
+    // (l'italique « * » ne doit pas défaire le gras « ** », ni l'inverse)
+    const exactBefore = value.slice(start - a.before.length, start) === a.before && value[start - a.before.length - 1] !== mk;
+    const exactAfter = value.slice(end, end + a.after.length) === a.after && value[end + a.after.length] !== mk;
+    const innerOf = (x: string) => x.slice(a.before.length, x.length - a.after.length);
+    const wrapsWhole =
+      sel.length > a.before.length + a.after.length &&
+      sel.startsWith(a.before) &&
+      sel.endsWith(a.after) &&
+      sel[a.before.length] !== mk &&
+      sel[sel.length - a.after.length - 1] !== mk &&
+      !innerOf(sel).includes(a.before); // « **A** et **B** » n'est pas un seul bloc gras
     // déjà entouré : on retire la mise en forme
-    if (value.slice(start - a.before.length, start) === a.before && value.slice(end, end + a.after.length) === a.after && sel) {
+    if (sel && exactBefore && exactAfter) {
       const v = value.slice(0, start - a.before.length) + sel + value.slice(end + a.after.length);
       return { value: v, start: start - a.before.length, end: end - a.before.length };
     }
-    if (sel.startsWith(a.before) && sel.endsWith(a.after) && sel.length >= a.before.length + a.after.length) {
-      const inner = sel.slice(a.before.length, sel.length - a.after.length);
+    if (wrapsWhole) {
+      const inner = innerOf(sel);
       return { value: value.slice(0, start) + inner + value.slice(end), start, end: start + inner.length };
     }
     // les espaces en bord de sélection restent hors des marqueurs
     const lead = sel.match(/^\s*/)![0].length;
     const trail = sel.match(/\s*$/)![0].length;
-    const core = sel.slice(lead, sel.length - trail) || a.placeholder;
+    // sélection en partie mise en forme (« **A** et **B** ») : tout passe dans le même style, comme dans les éditeurs du marché
+    const strip = a.before === "*" ? /(?<!\*)\*(?!\*)/g : new RegExp(a.before.replace(/[*=~`]/g, "\\$&"), "g");
+    const core = sel.slice(lead, sel.length - trail).replace(strip, "") || a.placeholder;
     const s = start + lead;
     const v = value.slice(0, s) + a.before + core + a.after + value.slice(s + (sel.length - lead - trail));
     return { value: v, start: s + a.before.length, end: s + a.before.length + core.length };
   }
   if (a.kind === "line") {
-    const ls = value.lastIndexOf("\n", start - 1) + 1;
+    const ls = start === 0 ? 0 : value.lastIndexOf("\n", start - 1) + 1;
     const leRaw = value.indexOf("\n", Math.max(end - (end > start && value[end - 1] === "\n" ? 1 : 0), start));
     const le = leRaw === -1 ? value.length : leRaw;
     const lines = value.slice(ls, le).split("\n");
-    const all = lines.every((l) => !l.trim() || a.match.test(l));
+    // « déjà en liste » seulement si au moins une ligne porte le préfixe : sur une ligne vide, le bouton ajoute le préfixe
+    const all = lines.some((l) => l.trim()) && lines.every((l) => !l.trim() || a.match.test(l));
     const out = lines.map((l, i) => {
       if (!l.trim() && lines.length > 1) return l;
       const bare = l.replace(LINE_PREFIX, "$1");
@@ -84,28 +101,21 @@ export function applyTool(value: string, start: number, end: number, tool: Tool)
   let s = start;
   let e = end;
   if (s === e) {
-    s = value.lastIndexOf("\n", start - 1) + 1;
+    s = start === 0 ? 0 : value.lastIndexOf("\n", start - 1) + 1;
     const n = value.indexOf("\n", start);
     e = n === -1 ? value.length : n;
   }
   const cleaned = value
     .slice(s, e)
     .split("\n")
-    .map((l) => l.replace(LINE_PREFIX, "$1"))
-    .join("\n")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/~~([^~]+)~~/g, "$1")
-    .replace(/==([^=]+)==/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
-    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1$2");
+    .map((l) => tokensToText(tokenizeInline(l.replace(LINE_PREFIX, "$1"))))
+    .join("\n");
   return { value: value.slice(0, s) + cleaned + value.slice(e), start: s, end: s + cleaned.length };
 }
 
 /** Prolonge une liste à la touche Entrée (puces, numéros, cases) ; une ligne de liste vide termine la liste. */
 function continueList(value: string, pos: number): { value: string; pos: number } | null {
-  const ls = value.lastIndexOf("\n", pos - 1) + 1;
+  const ls = pos === 0 ? 0 : value.lastIndexOf("\n", pos - 1) + 1;
   const line = value.slice(ls, pos);
   const m = line.match(/^(\s*)([-•*]\s+|(\d+)([.)])\s+|\[[ xX]\]\s+)/);
   if (!m) return null;

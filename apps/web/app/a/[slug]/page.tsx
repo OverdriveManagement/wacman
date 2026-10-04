@@ -3,7 +3,7 @@
 import useSWR from "swr";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent } from "@dnd-kit/core";
+import { DndContext, MouseSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent } from "@dnd-kit/core";
 import { api, fetcher } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
 import { frDate, isOverdue, tone } from "@/lib/format";
@@ -46,7 +46,9 @@ export default function KanbanPage() {
 
   const onChanged = (c?: Card, removed?: boolean) => {
     if (!c) return mutate();
-    mutate((list) => (removed ? (list ?? []).filter((x) => x.id !== c.id) : (list ?? []).map((x) => (x.id === c.id ? { ...x, ...c } : x))), { revalidate: false });
+    // une carte archivée quitte le tableau comme une carte supprimée
+    const gone = removed || c.archived;
+    mutate((list) => (gone ? (list ?? []).filter((x) => x.id !== c.id) : (list ?? []).map((x) => (x.id === c.id ? { ...x, ...c } : x))), { revalidate: false });
   };
 
   return (
@@ -95,7 +97,8 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
   const [filtersOpen, setFiltersOpen] = useState(false);
   const sw = useSprintSwitch();
   const isMobile = useIsMobile();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }));
+  // souris : déplacement après 6 px ; écran tactile : appui long (le défilement de la page reste possible)
+  const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }));
   const { data: me } = useMe();
   const myContacts = useMemo(() => new Set(acc.data.contacts.filter((c) => c.userId && c.userId === me?.user.id).map((c) => c.id)), [acc.data.contacts, me]);
 
@@ -108,6 +111,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
     const q = query.trim().toLowerCase().replace(/^#/, "");
     return (cards ?? []).filter(
       (c) =>
+        !c.archived &&
         (!owner || c.ownerId === owner) &&
         (!alertOnly || c.alertLevelId) &&
         (!lateOnly || (isOverdue(c.dueDate) && !acc.isDone(c.statusId))) &&
@@ -174,12 +178,14 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
   const laneMenu = (l: Lane): MenuItem[] => {
     if (!admin || !l.stream) return [];
     const i = lanesAll.findIndex((x) => x.id === l.id);
-    const ids = [...acc.data.streams].sort((a, b) => a.order - b.order).map((s) => s.id);
-    const gi = ids.indexOf(l.stream.id);
+    // échange avec le couloir visible voisin : les streams masqués gardent leur place derrière
+    const visible = lanesAll.map((s) => s.id);
+    const hidden = [...acc.data.streams].filter((s) => !visible.includes(s.id)).sort((a, b) => a.order - b.order).map((s) => s.id);
+    const ids = [...visible, ...hidden];
     return [
       { label: "Modifier le stream", onClick: () => setStreamEdit(l.stream!) },
-      { label: "Monter", disabled: i <= 0, onClick: async () => (await swapOrder(acc.base, "stream", ids, gi, -1), acc.mutate()) },
-      { label: "Descendre", disabled: i >= lanesAll.length - 1, onClick: async () => (await swapOrder(acc.base, "stream", ids, gi, 1), acc.mutate()) },
+      { label: "Monter", disabled: i <= 0, onClick: async () => (await swapOrder(acc.base, "stream", ids, i, -1), acc.mutate()) },
+      { label: "Descendre", disabled: i >= lanesAll.length - 1, onClick: async () => (await swapOrder(acc.base, "stream", ids, i, 1), acc.mutate()) },
       "sep",
       { label: "Retirer du kanban", onClick: async () => (await api(`${acc.base}/e/stream/${l.stream!.id}`, { method: "PATCH", json: { inKanban: false } }), acc.mutate()) },
     ];
@@ -235,8 +241,10 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
   const activeFilters = [owner, alertOnly, lateOnly, mineOnly, staleOnly, query.trim()].filter(Boolean).length;
   const mobileColId = cols.some((c) => c.id === mobileCol[view]) ? mobileCol[view] : cols[0]?.id;
 
+  // sprint proposé à la création : celui de l'onglet affiché (« Sans sprint » : aucun ; « Tous » : le sprint en cours)
+  const defaultSprint = sprintId === "none" ? null : (sprint?.id ?? acc.currentSprint?.id ?? null);
   const addAt = (laneId: string | null, colId: string) => {
-    if (view === "status") setCreating({ streamId: laneId, statusId: colId, sprintId: sprint?.id ?? acc.currentSprint?.id ?? null });
+    if (view === "status") setCreating({ streamId: laneId, statusId: colId, sprintId: defaultSprint });
     else setCreating({ streamId: laneId, statusId: statuses[0]?.id ?? null, sprintId: colId === "none" ? null : colId });
   };
 
@@ -266,7 +274,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
           Filtres{activeFilters ? ` (${activeFilters})` : ""}
         </button>
         {acc.canEdit && (
-          <button className="btn btn-primary btn-sm" onClick={() => setCreating({ streamId: null, statusId: statuses[0]?.id ?? null, sprintId: sprint?.id ?? acc.currentSprint?.id ?? null })}>
+          <button className="btn btn-primary btn-sm" onClick={() => setCreating({ streamId: null, statusId: statuses[0]?.id ?? null, sprintId: view === "status" ? defaultSprint : (acc.currentSprint?.id ?? null) })}>
             <IconPlus /> Nouvelle carte
           </button>
         )}
@@ -505,8 +513,20 @@ function DraggableCard({ card, onOpen, canEdit, showStatus }: { card: Card; onOp
       }}
       {...drag.listeners}
       {...drag.attributes}
-      className={`${drag.isDragging ? "opacity-30" : ""} ${drop.isOver && !drag.isDragging ? "pt-3" : ""} transition-[padding]`}
+      role="button"
+      tabIndex={0}
+      // la carte s'ouvre pour tous ; seul le glisser est réservé aux éditeurs
+      aria-disabled={false}
+      aria-roledescription={canEdit ? "carte déplaçable" : "carte"}
+      aria-label={`Carte ${card.ref} : ${card.title}`}
+      className={`${drag.isDragging ? "opacity-30" : ""} ${drop.isOver && !drag.isDragging ? "pt-3" : ""} rounded-lg transition-[padding] [touch-action:manipulation] focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent`}
       onClick={() => onOpen(card)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(card);
+        }
+      }}
     >
       <CardTile card={card} showStatus={showStatus} />
     </div>
@@ -525,7 +545,7 @@ function CardTile({ card, overlay = false, showStatus = false }: { card: Card; o
       style={{ borderColor: lvl ? `color-mix(in srgb, ${tone[lvl.color]} 55%, transparent)` : "var(--border-soft)", borderLeftWidth: lvl ? 3 : 1, borderLeftColor: lvl ? tone[lvl.color] : undefined }}
     >
       <div className="flex items-start gap-1.5">
-        <span className="flex-1 text-[0.86rem] font-semibold leading-snug text-ink">
+        <span className="min-w-0 flex-1 text-[0.86rem] font-semibold leading-snug text-ink [overflow-wrap:anywhere]">
           {card.emoji && <span className="mr-1">{card.emoji}</span>}
           {card.title}
         </span>
@@ -573,7 +593,7 @@ function NewCardModal({ init, onClose, onCreated }: { init: { streamId: string |
   }
   const close = () => (onClose(), setLastKey(""));
   const create = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || busy) return;
     setBusy(true);
     try {
       const c = await api<Card>(`${acc.base}/e/card`, { method: "POST", json: { title: title.trim(), streamId, statusId, sprintId: sprint } });
@@ -601,7 +621,7 @@ function NewCardModal({ init, onClose, onCreated }: { init: { streamId: string |
     >
       <div className="space-y-3">
         <Field label="Titre du livrable">
-          <input className="input" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+          <input className="input" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !e.repeat && create()} />
         </Field>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Stream">

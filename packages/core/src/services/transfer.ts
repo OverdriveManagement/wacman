@@ -59,6 +59,7 @@ export const accountFileSchema = z.object({
       blocks: z.array(z.enum(T.MEETING_BLOCKS)),
       order: z.number().optional(),
       settings: z.record(z.unknown()).optional(),
+      active: z.boolean().optional(),
     }),
   ),
   governance: z.array(
@@ -122,6 +123,20 @@ export const accountFileSchema = z.object({
       cards: z.array(z.number()).default([]),
     }),
   ),
+  // commentaires, rattachés par Réf. de carte, rang du risque, ou rang de la séance et de l'élément dans la séance
+  comments: z
+    .array(
+      z.object({
+        on: z.enum(["card", "risk", "highlight", "streamStatus", "topic"]),
+        ref: z.number().int().optional(),
+        meeting: z.number().int().optional(),
+        index: z.number().int().optional(),
+        author: opt, // e-mail de l'auteur
+        body: z.string(),
+        createdAt: opt,
+      }),
+    )
+    .default([]),
 });
 
 export type AccountFile = z.infer<typeof accountFileSchema>;
@@ -218,7 +233,7 @@ export async function importAccount(user: SessionUser, input: unknown) {
     const mts = keyed(f.meetingTypes, maps.type);
     if (mts.length)
       await tx.insert(T.meetingTypes).values(
-        mts.map(({ x, id }, i) => ({ id, accountId, name: x.name, emoji: s(x.emoji), frequency: s(x.frequency), description: s(x.description), guide: s(x.guide), blocks: x.blocks, order: x.order ?? i + 1, settings: x.settings ?? {} })),
+        mts.map(({ x, id }, i) => ({ id, accountId, name: x.name, emoji: s(x.emoji), frequency: s(x.frequency), description: s(x.description), guide: s(x.guide), blocks: x.blocks, order: x.order ?? i + 1, settings: x.settings ?? {}, active: x.active ?? true })),
       );
     if (f.governance.length)
       await tx.insert(T.governanceBodies).values(
@@ -262,20 +277,30 @@ export async function importAccount(user: SessionUser, input: unknown) {
     }
     await tx.update(T.accounts).set({ nextCardRef: maxRef + 1 }).where(eq(T.accounts.id, accountId));
 
+    const childIds = { highlight: [] as string[][], streamStatus: [] as string[][], topic: [] as string[][] };
+    const riskIds: string[] = [];
     for (const m of f.meetings) {
       const meetingId = randomUUID();
+      const hIds = m.highlights.map(() => randomUUID());
+      const sIds = m.statuses.map(() => randomUUID());
+      const tIds = m.topics.map(() => randomUUID());
+      childIds.highlight.push(hIds);
+      childIds.streamStatus.push(sIds);
+      childIds.topic.push(tIds);
       await tx.insert(T.meetings).values({ id: meetingId, accountId, meetingTypeId: ref(maps.type, m.type, "type de séance")!, date: d(m.date)!, notes: s(m.notes) });
       const base = { accountId, meetingId };
       if (m.highlights.length)
         await tx.insert(T.highlights).values(
-          m.highlights.map((h, i) => ({ ...base, title: h.title, emoji: s(h.emoji), detail: s(h.detail), streamId: ref(maps.stream, h.stream, "stream"), typeId: ref(maps.option, h.type, "type"), authorId: ref(maps.contact, h.author, "contact"), order: h.order ?? i + 1 })),
+          m.highlights.map((h, i) => ({ ...base, id: hIds[i], title: h.title, emoji: s(h.emoji), detail: s(h.detail), streamId: ref(maps.stream, h.stream, "stream"), typeId: ref(maps.option, h.type, "type"), authorId: ref(maps.contact, h.author, "contact"), order: h.order ?? i + 1 })),
         );
       if (m.statuses.length)
         await tx.insert(T.streamStatuses).values(
           m.statuses.map((st, i) => ({
             ...base,
+            id: sIds[i],
             streamId: ref(maps.stream, st.stream, "stream"),
-            statusIds: st.statuses.map((k) => ref(maps.option, k, "statut")!),
+            // un statut disparu est ignoré plutôt que de faire échouer tout l'import
+            statusIds: st.statuses.map((k) => maps.option.get(k)).filter((x): x is string => !!x),
             progress: s(st.progress),
             alerts: s(st.alerts),
             order: st.order ?? i + 1,
@@ -285,6 +310,7 @@ export async function importAccount(user: SessionUser, input: unknown) {
         await tx.insert(T.topics).values(
           m.topics.map((t, i) => ({
             ...base,
+            id: tIds[i],
             title: t.title,
             emoji: s(t.emoji),
             themeId: ref(maps.option, t.theme, "thématique"),
@@ -297,6 +323,7 @@ export async function importAccount(user: SessionUser, input: unknown) {
     }
     for (const r of f.risks) {
       const riskId = randomUUID();
+      riskIds.push(riskId);
       await tx.insert(T.risks).values({
         id: riskId,
         accountId,
@@ -317,7 +344,23 @@ export async function importAccount(user: SessionUser, input: unknown) {
         if (!id) throw badRequest(`Carte inconnue dans un risque : Réf. ${n}`);
         return id;
       });
-      if (cardIds.length) await tx.insert(T.riskCards).values(cardIds.map((cardId) => ({ riskId, cardId })));
+      if (cardIds.length) await tx.insert(T.riskCards).values([...new Set(cardIds)].map((cardId) => ({ riskId, cardId })));
+    }
+    if (f.comments.length) {
+      const emails = [...new Set(f.comments.map((c) => s(c.author).toLowerCase()).filter(Boolean))];
+      const authors = emails.length ? await tx.select({ id: T.users.id, email: T.users.email }).from(T.users).where(inArray(T.users.email, emails)) : [];
+      const rows = f.comments
+        .map((c) => {
+          let entityId: string | undefined;
+          if (c.on === "card") entityId = c.ref !== undefined ? maps.card.get(c.ref) : undefined;
+          else if (c.on === "risk") entityId = c.index !== undefined ? riskIds[c.index] : undefined;
+          else if (c.meeting !== undefined && c.index !== undefined) entityId = childIds[c.on][c.meeting]?.[c.index];
+          if (!entityId || !c.body.trim()) return null;
+          const authorId = authors.find((u) => u.email === s(c.author).toLowerCase())?.id ?? null;
+          return { accountId, entityType: c.on, entityId, authorId, body: c.body, createdAt: c.createdAt ? new Date(c.createdAt) : new Date() };
+        })
+        .filter((x): x is NonNullable<typeof x> => !!x);
+      if (rows.length) await tx.insert(T.comments).values(rows);
     }
     await audit({ user, accountId }, "account", accountId, "import", `Import du fichier de compte (${existing ? "remplacement" : "création"})`, {}, tx);
     return { accountId, slug: f.account.slug, replaced: !!existing };
@@ -370,6 +413,21 @@ export async function exportAccount(user: SessionUser, accountId: string): Promi
     db.select().from(T.risks).where(eq(T.risks.accountId, accountId)),
   ]);
   const links = rks.length ? await db.select().from(T.riskCards).where(inArray(T.riskCards.riskId, rks.map((r) => r.id))) : [];
+  const cms = await db
+    .select({ entityType: T.comments.entityType, entityId: T.comments.entityId, body: T.comments.body, createdAt: T.comments.createdAt, email: T.users.email })
+    .from(T.comments)
+    .leftJoin(T.users, eq(T.users.id, T.comments.authorId))
+    .where(eq(T.comments.accountId, accountId))
+    .orderBy(asc(T.comments.createdAt));
+  // emplacement de chaque élément commentable dans le fichier exporté
+  const where = new Map<string, { on: AccountFile["comments"][number]["on"]; ref?: number; meeting?: number; index?: number }>();
+  cds.forEach((c) => where.set(c.id, { on: "card", ref: c.ref }));
+  rks.forEach((r, index) => where.set(r.id, { on: "risk", index }));
+  mtgs.forEach((m, meeting) => {
+    hs.filter((x) => x.meetingId === m.id).forEach((x, index) => where.set(x.id, { on: "highlight", meeting, index }));
+    ss.filter((x) => x.meetingId === m.id).forEach((x, index) => where.set(x.id, { on: "streamStatus", meeting, index }));
+    ts.filter((x) => x.meetingId === m.id).forEach((x, index) => where.set(x.id, { on: "topic", meeting, index }));
+  });
   const refOf = new Map(cds.map((c) => [c.id, c.ref]));
   return {
     format: "wacman-account-v1",
@@ -378,7 +436,7 @@ export async function exportAccount(user: SessionUser, accountId: string): Promi
     streams: strs.map((x) => ({ key: x.id, name: x.name, emoji: x.emoji, leader: x.leader, prescriber: x.prescriber, order: x.order, active: x.active, inKanban: x.inKanban, inStatusTemplate: x.inStatusTemplate, inDirectory: x.inDirectory })),
     sprints: sps.map((x) => ({ key: x.id, name: x.name, startDate: x.startDate, endDate: x.endDate, state: x.state, objective: x.objective, clientMilestone: x.clientMilestone, order: x.order })),
     contacts: cts.map((c) => ({ key: c.id, name: c.name, email: c.email, company: c.company, role: c.role })),
-    meetingTypes: mts.map((m) => ({ key: m.id, name: m.name, emoji: m.emoji, frequency: m.frequency, description: m.description, guide: m.guide, blocks: m.blocks, order: m.order, settings: m.settings })),
+    meetingTypes: mts.map((m) => ({ key: m.id, name: m.name, emoji: m.emoji, frequency: m.frequency, description: m.description, guide: m.guide, blocks: m.blocks, order: m.order, settings: m.settings, active: m.active })),
     governance: gov.map((g) => ({ scope: g.scope, name: g.name, purpose: g.purpose, participants: g.participants, frequency: g.frequency, support: g.support, order: g.order })),
     cards: cds.map((c) => ({
       ref: c.ref,
@@ -424,5 +482,11 @@ export async function exportAccount(user: SessionUser, accountId: string): Promi
       owner: r.ownerId,
       cards: links.filter((l) => l.riskId === r.id).map((l) => refOf.get(l.cardId)!).filter((n) => n !== undefined),
     })),
+    comments: cms
+      .map((c) => {
+        const w = where.get(c.entityId);
+        return w && w.on === c.entityType ? { ...w, author: c.email ?? "", body: c.body, createdAt: c.createdAt.toISOString() } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => !!x),
   };
 }

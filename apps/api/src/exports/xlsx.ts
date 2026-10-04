@@ -101,9 +101,9 @@ export async function buildMeetingsWorkbook(ctx: Ctx, meetingTypeId: string) {
     ws.columns = [
       { header: "Séance", key: "date", width: 12 },
       { header: "Stream", key: "stream", width: 26 },
-      { header: st.statusLabel ?? "Statut", key: "status", width: 26 },
-      { header: st.progressLabel ?? "Avancement", key: "progress", width: 60 },
-      { header: st.alertsLabel ?? "Alertes & prérequis", key: "alerts", width: 60 },
+      { header: st.statusLabel || "Statut", key: "status", width: 26 },
+      { header: st.progressLabel || "Avancement", key: "progress", width: 60 },
+      { header: st.alertsLabel || "Alertes & prérequis", key: "alerts", width: 60 },
     ];
     for (const m of meetings)
       for (const s of m.statuses)
@@ -119,7 +119,7 @@ export async function buildMeetingsWorkbook(ctx: Ctx, meetingTypeId: string) {
       { header: "Thématique", key: "theme", width: 13 },
       { header: "Nature", key: "nature", width: 13 },
       { header: "Description", key: "description", width: 60 },
-      { header: st.decisionLabel ?? "Arbitrage ou décision demandée", key: "decision", width: 60 },
+      { header: st.decisionLabel || "Arbitrage ou décision demandée", key: "decision", width: 60 },
     ];
     for (const m of meetings)
       for (const t of m.topics)
@@ -132,6 +132,14 @@ export async function buildMeetingsWorkbook(ctx: Ctx, meetingTypeId: string) {
           description: plain(t.description),
           decision: plain(t.decisionRequest),
         });
+    styleSheet(ws);
+  }
+  // type de séance sans bloc stocké (vues à date du kanban seulement) : une feuille explicative plutôt qu'un classeur vide
+  if (!wb.worksheets.length) {
+    const ws = wb.addWorksheet("Séances");
+    ws.columns = [{ header: "Séance", key: "date", width: 14 }, { header: "Information", key: "info", width: 90 }];
+    for (const m of meetings) ws.addRow({ date: frDate(m.date), info: "Séance sans contenu propre : ses blocs sont des vues à date du kanban (cartes en alerte, planning)." });
+    if (!meetings.length) ws.addRow({ date: "", info: "Aucune séance." });
     styleSheet(ws);
   }
   return { buffer: Buffer.from(await wb.xlsx.writeBuffer()), filename: `${stamp()}_${d.account.slug}_${type.name.replace(/\s+/g, "-")}.xlsx` };

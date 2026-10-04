@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../db.js";
 import * as T from "../schema.js";
-import { badRequest, notFound, type SessionUser } from "../context.js";
+import { badRequest, isUuid, notFound, type SessionUser } from "../context.js";
 import { audit } from "../audit.js";
 import { toSessionUser } from "./users.js";
 
@@ -61,7 +61,7 @@ export async function createApiToken(user: SessionUser, input: unknown) {
 }
 
 export async function revokeApiToken(user: SessionUser, id: string) {
-  if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound();
+  if (!isUuid(id)) throw notFound();
   const [row] = await db
     .update(T.apiTokens)
     .set({ revokedAt: new Date() })

@@ -42,7 +42,7 @@ export function CardModal({
   };
 
   const sprints = acc.data.sprints.map((s) => ({ id: s.id, label: `${s.name}${s.state === "CURRENT" ? " (en cours)" : ""}` }));
-  const streams = acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }));
+  const streams = acc.data.streams.map((s) => ({ id: s.id, label: s.active ? s.name : `${s.name} (inactif)`, emoji: s.emoji, hidden: !s.active }));
   const contacts = acc.data.contacts.map((p) => ({ id: p.id, label: p.name }));
   const alert = c.alertLevelId ? acc.opt.get(c.alertLevelId) : null;
 
@@ -133,7 +133,10 @@ export function CardModal({
                 disabled={ro}
                 defaultValue={c.progressPct ?? ""}
                 onBlur={(e) => {
-                  const v = e.target.value === "" ? null : Math.max(0, Math.min(100, Number(e.target.value)));
+                  const n = Number(e.target.value.replace(",", "."));
+                  // entier de 0 à 100 (« 12,5 » devient 13) ; une saisie invalide est ignorée
+                  const v = e.target.value === "" ? null : Number.isFinite(n) ? Math.round(Math.max(0, Math.min(100, n))) : c.progressPct;
+                  e.target.value = v === null ? "" : String(v);
                   if (v !== c.progressPct) save({ progressPct: v });
                 }}
               />

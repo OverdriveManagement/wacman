@@ -13,7 +13,7 @@ import { Callout, Empty, Pill, SectionTitle, Spinner } from "@/components/ui";
 export default function DashboardPage() {
   const acc = useAcc();
   const { data, error } = useSWR<Dashboard>(`${acc.base}/dashboard`, fetcher, { refreshInterval: 60_000 });
-  if (error) return <Empty>Tableau de bord indisponible : {(error as Error).message}</Empty>;
+  if (error && !data) return <Empty>Tableau de bord indisponible : {(error as Error).message}</Empty>;
   if (!data) return <Spinner />;
   const slug = acc.data.account.slug;
   const sp = data.sprint;
@@ -57,7 +57,7 @@ export default function DashboardPage() {
         </Tile>
         <Tile label="Échéances dépassées" hint="cartes non terminées" danger={data.overdueCount > 0}>
           <Big className={data.overdueCount ? "text-red" : ""}>{data.overdueCount}</Big>
-          <span className="text-sm text-muted">{data.dueSoon.length} à échéance sous 15 jours</span>
+          <span className="text-sm text-muted">{data.dueSoonCount ?? data.dueSoon.length} à échéance sous 15 jours</span>
         </Tile>
       </div>
 
@@ -97,7 +97,7 @@ export default function DashboardPage() {
 
       <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
         <CardList title="Échéances dépassées" icon="⏰" cards={data.overdue} empty="Aucune échéance dépassée." total={data.overdueCount} danger />
-        <CardList title="À échéance sous 15 jours" icon="📅" cards={data.dueSoon} empty="Rien à échéance dans les 15 prochains jours." />
+        <CardList title="À échéance sous 15 jours" icon="📅" cards={data.dueSoon} empty="Rien à échéance dans les 15 prochains jours." total={data.dueSoonCount} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2 [&>*]:min-w-0">
@@ -178,7 +178,7 @@ export default function DashboardPage() {
           <div className="card divide-y divide-line-soft">
             {data.activity.map((e) => (
               <div key={e.id} className="px-4 py-2.5 text-sm">
-                <div className="text-ink-2">{e.summary}</div>
+                <div className="text-ink-2 [overflow-wrap:anywhere]">{e.summary}</div>
                 <div className="text-xs text-muted">
                   {e.userName || "Système"}
                   {e.viaAssistant ? " via Claude" : ""}, {relative(e.createdAt)}

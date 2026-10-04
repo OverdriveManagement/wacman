@@ -3,14 +3,14 @@
 import useSWR from "swr";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, download, fetcher, toast } from "@/lib/api";
+import { api, download, fetcher, toast, whenIdle } from "@/lib/api";
 import { frDate, longDate, todayIso, tone } from "@/lib/format";
 import type { Card, Highlight, Meeting, MeetingType, StreamStatus, Topic } from "@/lib/types";
 import { useAcc, useEditMode } from "@/components/AccountContext";
 import { TagMulti, TagSelect } from "@/components/Tag";
 import { useCreators, useMe } from "@/lib/hooks";
 import { Markdown } from "@/components/Markdown";
-import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pill, Spinner, useConfirm } from "@/components/ui";
+import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pill, Spinner, useConfirm, useSubmit } from "@/components/ui";
 import { Comments, History } from "@/components/Comments";
 import { IconChevron, IconComment, IconCopy, IconDown, IconEdit, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
 import { meetingReportText } from "@/lib/report";
@@ -100,10 +100,10 @@ export default function MeetingsPage() {
               <button className="btn btn-ghost btn-sm !px-1.5" disabled={idx >= meetings.length - 1} onClick={() => setSelected(meetings[idx + 1].id)} aria-label="Séance précédente" title="Séance précédente">
                 <IconChevron className="rotate-180" />
               </button>
-              <select className="input !w-auto min-w-0 flex-1 font-display !text-base font-bold text-heading sm:flex-none" value={meeting.id} onChange={(e) => setSelected(e.target.value)} aria-label="Séance">
+              <select className="input !w-auto min-w-0 flex-1 font-display !text-base font-bold capitalize text-heading sm:flex-none" value={meeting.id} onChange={(e) => setSelected(e.target.value)} aria-label={`Séance ${type.name}`}>
                 {meetings.map((m) => (
                   <option key={m.id} value={m.id}>
-                    {type.name} du {longDate(m.date)}
+                    {longDate(m.date)}
                   </option>
                 ))}
               </select>
@@ -117,10 +117,12 @@ export default function MeetingsPage() {
                 title="Copier le compte rendu mis en forme, prêt à coller dans Gmail"
                 onClick={async () => {
                   try {
+                    // un champ en cours de saisie s'enregistre au clic : on attend cet enregistrement et on relit la séance
+                    const fresh = whenIdle().then(() => api<Meeting>(`${acc.base}/meetings/${meeting.id}`, { silent: true }).catch(() => meeting));
                     const cards = type.blocks.includes("ALERT_CARDS") ? api<Card[]>(`${acc.base}/cards`) : Promise.resolve(undefined);
                     const signature = me?.user.name?.split(" ")[0];
-                    const html = cards.then((list) => meetingReportHtml(meeting, type, acc, { cards: list, signature }));
-                    const how = await copyRich(html, meetingReportText(meeting, type, acc));
+                    const html = Promise.all([fresh, cards]).then(([m, list]) => meetingReportHtml(m, type, acc, { cards: list, signature }));
+                    const how = await copyRich(html, fresh.then((m) => meetingReportText(m, type, acc)));
                     toast("success", how === "rich" ? "Compte rendu copié avec sa mise en forme : collez-le dans votre e-mail." : "Compte rendu copié en texte simple.");
                   } catch {
                     toast("error", "Copie impossible dans ce navigateur.");
@@ -152,20 +154,7 @@ export default function MeetingsPage() {
                 />
               )}
             </div>
-            <Modal open={dateEdit} onClose={() => setDateEdit(false)} title="Date de la séance">
-              <Field label="Nouvelle date">
-                <input
-                  type="date"
-                  className="input"
-                  defaultValue={meeting.date}
-                  onChange={async (e) => {
-                    if (!e.target.value || e.target.value < "1900") return;
-                    await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "PATCH", json: { date: e.target.value } });
-                    reload();
-                  }}
-                />
-              </Field>
-            </Modal>
+            <DateChangeModal open={dateEdit} meeting={meeting} onClose={() => setDateEdit(false)} onSaved={reload} />
             <div className="space-y-8 p-3 md:p-4">
               {stored.includes("HIGHLIGHTS") && <HighlightsBlock meeting={meeting} reload={reload} />}
               {stored.includes("STREAM_STATUS") && <StatusBlock meeting={meeting} type={type} reload={reload} />}
@@ -208,7 +197,8 @@ export default function MeetingsPage() {
         onClose={() => setOpenCard(null)}
         onChanged={(c, removed) => {
           if (!c) return mutateCards();
-          mutateCards((list) => (removed ? (list ?? []).filter((x) => x.id !== c.id) : (list ?? []).map((x) => (x.id === c.id ? { ...x, ...c } : x))), { revalidate: false });
+          // une carte archivée sort des listes comme une carte supprimée
+          mutateCards((list) => (removed || c.archived ? (list ?? []).filter((x) => x.id !== c.id) : (list ?? []).map((x) => (x.id === c.id ? { ...x, ...c } : x))), { revalidate: false });
         }}
         onDuplicated={(c) => (mutateCards(), setOpenCard(c))}
       />
@@ -319,8 +309,8 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
   const ro = !acc.canEdit;
-  const streams = acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }));
-  const quickAdd = async () => {
+  const streams = acc.data.streams.map((s) => ({ id: s.id, label: s.active ? s.name : `${s.name} (inactif)`, emoji: s.emoji, hidden: !s.active }));
+  const [quickAdd] = useSubmit(async () => {
     const title = draft.trim();
     if (!title) return;
     const me = acc.data.contacts.find((c) => c.userId && c.userId === meData?.user.id);
@@ -328,7 +318,7 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
     setDraft("");
     reload();
     // on reste en saisie pour enchaîner plusieurs faits marquants
-  };
+  });
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
@@ -344,7 +334,7 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
           <article key={h.id} className="group relative flex flex-col rounded-xl border border-line-soft bg-surface-2/60 p-3.5">
             <div className="mb-1 flex items-start gap-1.5 pr-14">
               {h.emoji && <span className="mt-0.5 text-base">{h.emoji}</span>}
-              <InlineText disabled={ro} value={h.title} onSave={async (v) => (v.trim() ? (await patch(acc.base, "highlight", h.id, { title: v.trim() }), reload()) : toast("error", "Le titre est obligatoire."))} render={(v) => <span className="font-display text-base font-bold leading-snug text-accent">{v}</span>} className="flex-1" />
+              <InlineText disabled={ro} value={h.title} onSave={async (v) => (v.trim() ? (await patch(acc.base, "highlight", h.id, { title: v.trim() }), reload()) : toast("error", "Le titre est obligatoire."))} render={(v) => <span className="font-display text-base font-bold leading-snug text-accent [overflow-wrap:anywhere]">{v}</span>} className="flex-1" />
             </div>
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <TagSelect label="Type" disabled={ro} options={acc.byKind("HIGHLIGHT_TYPE")} value={h.typeId} onChange={async (v) => (await patch(acc.base, "highlight", h.id, { typeId: v }), reload())} onCreate={create.option("HIGHLIGHT_TYPE")} createLabel="Nouveau type…" />
@@ -387,7 +377,7 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") quickAdd();
+                if (e.key === "Enter" && !e.repeat) quickAdd();
                 if (e.key === "Escape") (setAdding(false), setDraft(""));
               }}
               onBlur={() => !draft.trim() && setAdding(false)}
@@ -491,7 +481,7 @@ function HighlightModal({
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Stream">
-            <OptionSelect disabled={ro} options={acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }))} value={form.streamId} onChange={(v) => setForm({ ...form, streamId: v })} />
+            <OptionSelect disabled={ro} options={acc.data.streams.filter((s) => s.active || s.id === form.streamId).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }))} value={form.streamId} onChange={(v) => setForm({ ...form, streamId: v })} />
           </Field>
           <Field label="Type">
             <OptionSelect disabled={ro} options={acc.byKind("HIGHLIGHT_TYPE")} value={form.typeId} onChange={(v) => setForm({ ...form, typeId: v })} placeholder="Sans type" onCreate={onCreateType} createLabel="Nouveau type…" />
@@ -525,7 +515,7 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
   const st = type.settings ?? {};
   const [comments, setComments] = useState<StreamStatus | null>(null);
   const create = useCreators(acc);
-  const streams = acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }));
+  const streams = acc.data.streams.map((s) => ({ id: s.id, label: s.active ? s.name : `${s.name} (inactif)`, emoji: s.emoji, hidden: !s.active }));
   const add = async () => {
     await api(`${acc.base}/e/streamStatus`, { method: "POST", json: { meetingId: meeting.id, statusIds: [], order: meeting.statuses.length + 1 } });
     reload();
@@ -546,9 +536,9 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
         <div className="space-y-3 lg:space-y-0">
           <div className="hidden grid-cols-[220px_190px_1fr_1fr_60px] gap-3 rounded-t-xl bg-surface-2 px-3 py-2 text-[0.72rem] font-semibold text-muted lg:grid">
             <div>Stream</div>
-            <div>{st.statusLabel ?? "Statut"}</div>
-            <div>{st.progressLabel ?? "Avancement"}</div>
-            <div>{st.alertsLabel ?? "Alertes & prérequis"}</div>
+            <div>{st.statusLabel || "Statut"}</div>
+            <div>{st.progressLabel || "Avancement"}</div>
+            <div>{st.alertsLabel || "Alertes & prérequis"}</div>
             <div />
           </div>
           {meeting.statuses.map((r, i) => {
@@ -563,9 +553,9 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
                   <TagSelect label="Stream" variant="text" className="text-sm font-semibold text-ink" disabled={ro} options={streams} value={r.streamId} onChange={async (v) => (await patch(acc.base, "streamStatus", r.id, { streamId: v }), reload())} />
                 </div>
                 <div>
-                  <span className="label lg:hidden">{st.statusLabel ?? "Statut"}</span>
+                  <span className="label lg:hidden">{st.statusLabel || "Statut"}</span>
                   <TagMulti
-                    label={st.statusLabel ?? "Statut"}
+                    label={st.statusLabel || "Statut"}
                     options={acc.byKind("STREAM_STATUS")}
                     value={r.statusIds}
                     disabled={ro}
@@ -575,11 +565,11 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
                   />
                 </div>
                 <div>
-                  <span className="label lg:hidden">{st.progressLabel ?? "Avancement"}</span>
+                  <span className="label lg:hidden">{st.progressLabel || "Avancement"}</span>
                   <InlineText multiline disabled={ro} value={r.progress} onSave={async (v) => (await patch(acc.base, "streamStatus", r.id, { progress: v }), reload())} className="text-sm text-ink-2" />
                 </div>
                 <div>
-                  <span className="label lg:hidden">{st.alertsLabel ?? "Alertes & prérequis"}</span>
+                  <span className="label lg:hidden">{st.alertsLabel || "Alertes & prérequis"}</span>
                   <InlineText multiline disabled={ro} value={r.alerts} onSave={async (v) => (await patch(acc.base, "streamStatus", r.id, { alerts: v }), reload())} className="text-sm text-ink-2" />
                 </div>
                 <div className="flex items-start gap-0.5 transition lg:flex-col lg:items-end lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100">
@@ -634,7 +624,7 @@ function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
   const acc = useAcc();
   const [edit, setEdit] = useState<Topic | "new" | null>(null);
   const create = useCreators(acc);
-  const decisionLabel = type.settings?.decisionLabel ?? "Arbitrage ou décision demandée";
+  const decisionLabel = type.settings?.decisionLabel || "Arbitrage ou décision demandée";
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
@@ -812,6 +802,44 @@ function TopicModal({ meeting, item, decisionLabel, onClose, reload }: { meeting
         )}
       </div>
       {confirm.node}
+    </Modal>
+  );
+}
+
+/** Changement de date d'une séance : enregistré au clic sur « Enregistrer », pas à chaque chiffre tapé. */
+function DateChangeModal({ open, meeting, onClose, onSaved }: { open: boolean; meeting: Meeting; onClose: () => void; onSaved: () => void }) {
+  const acc = useAcc();
+  const [date, setDate] = useState(meeting.date);
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  if (open && shownFor !== meeting.id + meeting.date) {
+    setShownFor(meeting.id + meeting.date);
+    setDate(meeting.date);
+  }
+  const [save, busy] = useSubmit(async () => {
+    if (!date || date < "1900" || date === meeting.date) return onClose();
+    await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "PATCH", json: { date } });
+    onSaved();
+    onClose();
+  });
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Date de la séance"
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Annuler
+          </button>
+          <button className="btn btn-primary" disabled={busy || !date} onClick={() => save()}>
+            Enregistrer
+          </button>
+        </>
+      }
+    >
+      <Field label="Nouvelle date">
+        <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+      </Field>
     </Modal>
   );
 }

@@ -23,7 +23,27 @@ function describe(details: unknown): string {
   return parts.length ? ` (${parts.join(" ; ")})` : "";
 }
 
-export async function api<T = unknown>(path: string, init: RequestInit & { json?: unknown; silent?: boolean } = {}): Promise<T> {
+/** Écritures en cours (enregistrement au clic à l'extérieur d'un champ, par exemple). */
+const pending = new Set<Promise<unknown>>();
+
+/** Attend la fin des enregistrements en cours, avant une copie ou un export de ce qui est affiché. */
+export async function whenIdle() {
+  while (pending.size) await Promise.allSettled([...pending]);
+}
+
+export function api<T = unknown>(path: string, init: RequestInit & { json?: unknown; silent?: boolean } = {}): Promise<T> {
+  const p = request<T>(path, init);
+  if (init.method && init.method !== "GET") {
+    pending.add(p);
+    p.then(
+      () => pending.delete(p),
+      () => pending.delete(p),
+    );
+  }
+  return p;
+}
+
+async function request<T>(path: string, init: RequestInit & { json?: unknown; silent?: boolean }): Promise<T> {
   const { json, silent, ...rest } = init;
   const res = await fetch(path, {
     credentials: "include",

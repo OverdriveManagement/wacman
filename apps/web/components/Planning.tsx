@@ -34,7 +34,7 @@ export function cardBar(c: Card, spr: Map<string, Sprint>): Bar | null {
   return { start: start!, end: end!, implied: !c.startDate || !c.dueDate, milestone };
 }
 
-type Drag = { id: string; mode: "move" | "start" | "end"; x0: number; bar: Bar; delta: number };
+type Drag = { id: string; mode: "move" | "start" | "end"; x0: number; bar: Bar; delta: number; pointerId: number };
 
 export function Planning({ cards, onOpen, onSaved }: { cards?: Card[]; onOpen: (c: Card) => void; onSaved: () => void }) {
   const acc = useAcc();
@@ -108,10 +108,11 @@ export function Planning({ cards, onOpen, onSaved }: { cards?: Card[]; onOpen: (
   // ---------------------------------------------------------------- glisser pour replanifier
   const onPointerDown = (e: ReactPointerEvent, c: Card, bar: Bar, mode: Drag["mode"]) => {
     if (!acc.canEdit) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return; // clic droit : pas de glisser
     e.stopPropagation();
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    setDrag({ id: c.id, mode: bar.milestone ? "move" : mode, x0: e.clientX, bar, delta: 0 });
+    setDrag({ id: c.id, mode: bar.milestone ? "move" : mode, x0: e.clientX, bar, delta: 0, pointerId: e.pointerId });
   };
   const preview = (b: Bar, d: Drag | null): Bar => {
     if (!d) return b;
@@ -122,9 +123,14 @@ export function Planning({ cards, onOpen, onSaved }: { cards?: Card[]; onOpen: (
   };
   useEffect(() => {
     if (!drag) return;
-    const move = (e: PointerEvent) => setDrag((d) => (d ? { ...d, delta: Math.round((e.clientX - d.x0) / px) } : d));
-    const up = async () => {
+    const move = (e: PointerEvent) => setDrag((d) => (d && e.pointerId === d.pointerId ? { ...d, delta: Math.round((e.clientX - d.x0) / px) } : d));
+    // geste interrompu (défilement du navigateur, menu contextuel) : on abandonne sans rien enregistrer
+    const cancel = (e: PointerEvent) => {
+      if (dragRef.current && e.pointerId === dragRef.current.pointerId) setDrag(null);
+    };
+    const up = async (e: PointerEvent) => {
       const d = dragRef.current;
+      if (d && e.pointerId !== d.pointerId) return;
       setDrag(null);
       if (!d) return;
       const c = list.find((x) => x.id === d.id);
@@ -140,10 +146,15 @@ export function Planning({ cards, onOpen, onSaved }: { cards?: Card[]; onOpen: (
       }
     };
     window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up, { once: true });
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    window.addEventListener("lostpointercapture", cancel, true);
+    window.addEventListener("blur", () => setDrag(null), { once: true });
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("lostpointercapture", cancel, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag?.id, drag?.x0]);
@@ -343,7 +354,7 @@ export function Planning({ cards, onOpen, onSaved }: { cards?: Card[]; onOpen: (
                             ) : b.milestone ? (
                               <div
                                 className={`absolute top-[8px] h-3.5 w-3.5 rotate-45 rounded-[2px] ${acc.canEdit ? "cursor-grab" : ""}`}
-                                style={{ left: xOf(b.end) + px / 2 - 7, background: color, opacity: done ? 0.55 : 1, boxShadow: late ? "0 0 0 2px var(--red)" : undefined }}
+                                style={{ left: xOf(b.end) + px / 2 - 7, background: color, opacity: done ? 0.55 : 1, boxShadow: late ? "0 0 0 2px var(--red)" : undefined, touchAction: acc.canEdit ? "none" : undefined }}
                                 title={tip}
                                 onPointerDown={(e) => onPointerDown(e, c, base!, "move")}
                                 onClick={() => !acc.canEdit && onOpen(c)}
@@ -358,6 +369,7 @@ export function Planning({ cards, onOpen, onSaved }: { cards?: Card[]; onOpen: (
                                   border: b.implied ? `1.5px dashed ${color}` : undefined,
                                   opacity: done ? 0.55 : 1,
                                   boxShadow: late ? "inset -4px 0 0 var(--red)" : undefined,
+                                  touchAction: acc.canEdit ? "none" : undefined,
                                 }}
                                 title={tip}
                                 onPointerDown={(e) => onPointerDown(e, c, base!, "move")}

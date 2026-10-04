@@ -1,22 +1,11 @@
 import { longDate } from "./format";
+import { markupToPlain } from "./markup";
 import type { AccountCtx } from "./hooks";
 import type { Meeting, MeetingType } from "./types";
 
-/** Texte brut (sans balisage) d'un contenu saisi : gras retiré, liens écrits en clair. */
+/** Texte brut (sans balisage) d'un contenu saisi : mise en forme retirée, liens écrits en clair, cases lisibles. */
 export function plainText(s: string | null | undefined): string {
-  return (s ?? "")
-    .replace(/\*\*([^*]+)\*\*/g, "$1")
-    .replace(/__([^_]+)__/g, "$1")
-    .replace(/~~([^~]+)~~/g, "$1")
-    .replace(/==([^=]+)==/g, "$1")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*/g, "$1$2")
-    .replace(/^(\s*)#{1,3}\s+/gm, "$1")
-    .replace(/^(\s*)\[[xX]\]\s+/gm, "$1[fait] ")
-    .replace(/^(\s*)\[ \]\s+/gm, "$1[à faire] ")
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
-    .replace(/[ \t]+$/gm, "")
-    .trim();
+  return markupToPlain(s).trim();
 }
 
 const indent = (s: string, pad = "  ") =>

@@ -40,7 +40,7 @@ export const freshnessSchema = z.object({
     )
     .min(1)
     .max(6)
-    .refine((l) => l[l.length - 1].maxDays === null && l.slice(0, -1).every((x, i, a) => x.maxDays !== null && (i === 0 || x.maxDays > (a[i - 1].maxDays as number))), {
+    .refine((l) => l.length > 0 && l[l.length - 1].maxDays === null && l.slice(0, -1).every((x, i, a) => x.maxDays !== null && (i === 0 || x.maxDays > (a[i - 1].maxDays as number))), {
       message: "Paliers croissants, le dernier sans limite.",
     }),
 });

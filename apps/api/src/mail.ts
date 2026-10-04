@@ -6,6 +6,8 @@ const resend = env.resendApiKey ? new Resend(env.resendApiKey) : null;
 /** Envoie le code de double authentification. Sans clé Resend (développement), le code est journalisé. */
 export async function sendLoginCode(to: string, name: string, code: string, log: (msg: string) => void) {
   if (!resend) {
+    // en production, un code n'est jamais écrit dans les journaux : sans service d'e-mail, la connexion échoue proprement
+    if (env.isProd) throw new Error("Service d'e-mail non configuré (RESEND_API_KEY).");
     log(`[dev] Code de connexion pour ${to} : ${code}`);
     return;
   }
@@ -30,6 +32,7 @@ export async function sendLoginCode(to: string, name: string, code: string, log:
 /** Envoie le code de réinitialisation du mot de passe. */
 export async function sendResetCode(to: string, name: string, code: string, log: (msg: string) => void) {
   if (!resend) {
+    if (env.isProd) throw new Error("Service d'e-mail non configuré (RESEND_API_KEY).");
     log(`[dev] Code de réinitialisation pour ${to} : ${code}`);
     return;
   }

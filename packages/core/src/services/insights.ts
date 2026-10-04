@@ -93,6 +93,7 @@ export async function getDashboard(ctx: Ctx, today = parisToday()) {
       .slice(0, 12)
       .map(compact),
     overdueCount: open.filter((c) => c.dueDate && c.dueDate < today).length,
+    dueSoonCount: open.filter((c) => c.dueDate && c.dueDate >= today && c.dueDate <= soon).length,
     dueSoon: open
       .filter((c) => c.dueDate && c.dueDate >= today && c.dueDate <= soon)
       .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)))

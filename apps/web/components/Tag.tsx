@@ -10,9 +10,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
 import { createPortal } from "react-dom";
 import { frDate, tone } from "@/lib/format";
 
-export type TagOption = { id: string; label: string; emoji?: string; color?: string };
+/** hidden : valeur retirée (stream désactivé), affichée si elle est déjà choisie mais plus proposée. */
+export type TagOption = { id: string; label: string; emoji?: string; color?: string; hidden?: boolean };
 
-function Popover({ anchor, open, onClose, width = 240, children }: { anchor: RefObject<HTMLElement | null>; open: boolean; onClose: () => void; width?: number; children: ReactNode }) {
+function Popover({ anchor, open, onClose, width = 240, children }: { anchor: RefObject<HTMLElement | null>; open: boolean; onClose: (reason?: "escape") => void; width?: number; children: ReactNode }) {
   const [pos, setPos] = useState<{ top: number; left: number; up: boolean } | null>(null);
   useLayoutEffect(() => {
     if (!open || !anchor.current) return;
@@ -22,7 +23,7 @@ function Popover({ anchor, open, onClose, width = 240, children }: { anchor: Ref
   }, [open, anchor, width]);
   useEffect(() => {
     if (!open) return;
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.stopPropagation(), onClose());
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && (e.stopPropagation(), onClose("escape"));
     const close = (e: Event) => {
       // le défilement à l'intérieur du menu ne le ferme pas
       if (e.target instanceof Node && document.getElementById("wacman-popover")?.contains(e.target)) return;
@@ -39,7 +40,7 @@ function Popover({ anchor, open, onClose, width = 240, children }: { anchor: Ref
   }, [open, onClose]);
   if (!open || !pos) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[80]" onMouseDown={onClose} onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-[80]" onMouseDown={() => onClose()} onClick={(e) => e.stopPropagation()}>
       <div
         id="wacman-popover"
         role="dialog"
@@ -115,7 +116,7 @@ function OptionList({
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
   const [busy, setBusy] = useState(false);
-  const list = options.filter((o) => !q.trim() || o.label.toLowerCase().includes(q.trim().toLowerCase()));
+  const list = options.filter((o) => (!o.hidden || isOn(o.id)) && (!q.trim() || o.label.toLowerCase().includes(q.trim().toLowerCase())));
   const create = async () => {
     const label = (creating ? q : "").trim();
     if (!label || !onCreate) return;
@@ -247,9 +248,24 @@ export function TagSelect({
 }
 
 /** Étiquettes à valeurs multiples (statuts d'un stream en séance). */
-export function TagMulti({ options, value, onChange, label, disabled, onCreate, createLabel }: { options: TagOption[]; value: string[]; onChange: (v: string[]) => void; label: string; disabled?: boolean; onCreate?: (label: string) => Promise<string | null | void>; createLabel?: string }) {
+export function TagMulti({ options, value: saved, onChange, label, disabled, onCreate, createLabel }: { options: TagOption[]; value: string[]; onChange: (v: string[]) => void; label: string; disabled?: boolean; onCreate?: (label: string) => Promise<string | null | void>; createLabel?: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
+  // clics rapides : chaque choix part de la dernière valeur envoyée, sans attendre le rechargement
+  const [value, setValue] = useState(saved);
+  const last = useRef(saved);
+  const savedKey = saved.join(",");
+  useEffect(() => {
+    last.current = saved;
+    setValue(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
+  const pick = (id: string) => {
+    const next = last.current.includes(id) ? last.current.filter((x) => x !== id) : [...last.current, id];
+    last.current = next;
+    setValue(next);
+    onChange(next);
+  };
   const selected = value.map((id) => options.find((o) => o.id === id)).filter(Boolean) as TagOption[];
   if (disabled)
     return (
@@ -276,7 +292,7 @@ export function TagMulti({ options, value, onChange, label, disabled, onCreate, 
           multi
           options={options}
           isOn={(id) => value.includes(id)}
-          onPick={(id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])}
+          onPick={pick}
           onCreate={onCreate}
           createLabel={createLabel}
         />
@@ -289,18 +305,29 @@ export function TagMulti({ options, value, onChange, label, disabled, onCreate, 
 export function DateTag({ value, onChange, label, disabled, min, max, danger }: { value: string | null; onChange: (v: string | null) => void; label: string; disabled?: boolean; min?: string | null; max?: string | null; danger?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
+  // la date saisie n'est enregistrée qu'à la fermeture (OK, Entrée, clic à l'extérieur), pas à chaque chiffre tapé
+  const draft = useRef<string>(value ?? "");
+  const show = () => {
+    draft.current = value ?? "";
+    setOpen(true);
+  };
+  const close = (reason?: "escape") => {
+    setOpen(false);
+    const v = draft.current;
+    if (reason !== "escape" && v && v.length === 10 && v >= "1900" && v !== value) onChange(v);
+  };
   const text = <span className={`text-sm ${danger ? "font-semibold text-red" : "text-ink-2"}`}>{frDate(value)}</span>;
   if (disabled) return value ? text : <span className="text-sm text-muted">-</span>;
   return (
     <>
       {value ? (
-        <button ref={ref} type="button" className="rounded-md px-1 py-0.5 -mx-1 transition hover:bg-surface-2" onClick={() => setOpen(true)} title={`${label} : cliquer pour changer`} aria-label={`${label} : ${frDate(value)}`}>
+        <button ref={ref} type="button" className="rounded-md px-1 py-0.5 -mx-1 transition hover:bg-surface-2" onClick={show} title={`${label} : cliquer pour changer`} aria-label={`${label} : ${frDate(value)}`}>
           {text}
         </button>
       ) : (
-        <EmptyDot label={label} onClick={() => setOpen(true)} btnRef={ref} />
+        <EmptyDot label={label} onClick={show} btnRef={ref} />
       )}
-      <Popover anchor={ref} open={open} onClose={() => setOpen(false)} width={220}>
+      <Popover anchor={ref} open={open} onClose={close} width={220}>
         <div className="space-y-2 p-1.5">
           <div className="text-[0.68rem] font-semibold uppercase tracking-wider text-muted">{label}</div>
           <input
@@ -311,21 +338,19 @@ export function DateTag({ value, onChange, label, disabled, min, max, danger }: 
             min={min ?? undefined}
             max={max ?? undefined}
             onChange={(e) => {
-              if (e.target.value && e.target.value.length === 10 && e.target.value >= "1900") {
-                onChange(e.target.value);
-              }
+              draft.current = e.target.value;
             }}
-            onKeyDown={(e) => e.key === "Enter" && setOpen(false)}
+            onKeyDown={(e) => e.key === "Enter" && close()}
           />
           <div className="flex justify-between gap-2">
             {value ? (
-              <button type="button" className="text-xs text-muted hover:text-red" onClick={() => (setOpen(false), onChange(null))}>
+              <button type="button" className="text-xs text-muted hover:text-red" onClick={() => ((draft.current = value ?? ""), setOpen(false), onChange(null))}>
                 Effacer
               </button>
             ) : (
               <span />
             )}
-            <button type="button" className="btn btn-sm" onClick={() => setOpen(false)}>
+            <button type="button" className="btn btn-sm" onClick={() => close()}>
               OK
             </button>
           </div>

@@ -69,7 +69,9 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      // dans une zone de texte, Ctrl+K insère un lien (barre de mise en forme) : pas de recherche
       if ((e.key === "k" || e.key === "K") && (e.ctrlKey || e.metaKey)) {
+        if (e.defaultPrevented || el?.tagName === "TEXTAREA") return;
         e.preventDefault();
         setSearchOpen(true);
       } else if (e.key === "/" && !typing) {
@@ -81,7 +83,8 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  if (acc.error) {
+  // une erreur passagère de rafraîchissement ne remplace pas l'écran : seul un premier chargement en échec l'affiche
+  if (acc.error && !acc.data) {
     return (
       <div className="p-8">
         <p className="text-sm text-red">{(acc.error as Error).message || "Compte inaccessible."}</p>

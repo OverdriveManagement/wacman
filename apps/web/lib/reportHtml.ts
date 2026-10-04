@@ -7,6 +7,7 @@
 
 import type { AccountCtx } from "./hooks";
 import type { Card, Meeting, MeetingType } from "./types";
+import { parseLine, tokenizeInline, type MarkToken } from "./markup";
 
 const BLUE = "#1d4ed8";
 const BORDER = "#e5e7eb";
@@ -30,21 +31,40 @@ export function esc(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/** Balisage léger d'une ligne vers HTML en ligne (texte déjà échappé). */
+/** Segments mis en forme vers HTML d'e-mail ; tout texte saisi est échappé. */
+function tokensHtml(tokens: MarkToken[]): string {
+  return tokens
+    .map((k) => {
+      switch (k.t) {
+        case "text":
+          return esc(k.v);
+        case "code":
+          return `<code style="font-family:Consolas,monospace;font-size:12px;background-color:#f3f4f6;padding:0 3px">${esc(k.v)}</code>`;
+        case "link":
+          return `<a href="${esc(k.href)}" style="color:${BLUE}">${tokensHtml(k.children)}</a>`;
+        case "b":
+          return `<b>${tokensHtml(k.children)}</b>`;
+        case "i":
+          return `<i>${tokensHtml(k.children)}</i>`;
+        case "u":
+          return `<u>${tokensHtml(k.children)}</u>`;
+        case "s":
+          return `<s>${tokensHtml(k.children)}</s>`;
+        case "mark":
+          return `<span style="background-color:#fef08a">${tokensHtml(k.children)}</span>`;
+      }
+    })
+    .join("");
+}
+
+/** Balisage léger d'une ligne (texte brut saisi) vers HTML en ligne. */
 function inline(s: string) {
-  return s
-    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^)\s]+)\)/g, `<a href="$2" style="color:${BLUE}">$1</a>`)
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-    .replace(/__([^_]+)__/g, "<u>$1</u>")
-    .replace(/~~([^~]+)~~/g, "<s>$1</s>")
-    .replace(/==([^=]+)==/g, `<span style="background-color:#fef08a">$1</span>`)
-    .replace(/`([^`]+)`/g, `<code style="font-family:Consolas,monospace;font-size:12px;background-color:#f3f4f6;padding:0 3px">$1</code>`)
-    .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*/g, "$1<i>$2</i>");
+  return tokensHtml(tokenizeInline(s));
 }
 
 /** Texte saisi (balisage léger WacMan) vers HTML d'e-mail compact : listes, cases, titres, retours à la ligne. */
 export function mdToHtml(src: string | null | undefined): string {
-  const lines = esc((src ?? "").replace(/\r/g, "").trim()).split("\n");
+  const lines = (src ?? "").replace(/\r/g, "").trim().split("\n");
   const out: string[] = [];
   let list: { tag: "ul" | "ol"; items: string[] } | null = null;
   const flush = () => {
@@ -62,22 +82,19 @@ export function mdToHtml(src: string | null | undefined): string {
       flush();
       continue;
     }
-    const ul = line.match(/^\s*(?:[-•*])\s+(.*)$/);
-    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
-    if (ul || ol) {
-      const tag = ul ? "ul" : "ol";
+    const l = parseLine(line);
+    if (l.kind === "bullet" || l.kind === "number") {
+      const tag = l.kind === "bullet" ? "ul" : "ol";
       if (!list || list.tag !== tag) {
         flush();
         list = { tag, items: [] };
       }
-      list.items.push(inline((ul ?? ol)![1]));
+      list.items.push(inline(l.text));
       continue;
     }
     flush();
-    const box = line.match(/^\s*\[([ xX])\]\s+(.*)$/);
-    const h = line.match(/^\s*#{1,3}\s+(.*)$/);
-    if (box) push(`${box[1] === " " ? "☐" : "☑"} ${inline(box[2])}`);
-    else if (h) push(`<b>${inline(h[1])}</b>`);
+    if (l.kind === "check") push(`${l.done ? "☑" : "☐"} ${inline(l.text)}`);
+    else if (l.kind === "heading") push(`<b>${inline(l.text)}</b>`);
     else push(inline(line.trim()));
   }
   flush();
@@ -151,7 +168,7 @@ export function meetingReportHtml(meeting: Meeting, type: MeetingType, acc: Acco
             return [
               t ? `<b style="color:${pair(t.color).fg}">${esc(`${t.emoji ? `${t.emoji} ` : ""}${t.label}`)}</b>` : "",
               s ? esc(s.name) : `<span style="color:${MUTED}">Transverse</span>`,
-              lines(`<b>${inline(esc(h.title))}</b>`, h.detail.trim() && mdToHtml(h.detail)),
+              lines(`<b>${inline(h.title)}</b>`, h.detail.trim() && mdToHtml(h.detail)),
             ];
           }),
         ),
@@ -245,7 +262,7 @@ ${overview.join("\n")}
               String(i + 1),
               tags.map((o) => `<span style="color:${pair(o.color).fg};font-weight:bold">${esc(o.label)}</span>`).join("<br>"),
               lines(
-                `<b>${inline(esc(t.title))}</b>`,
+                `<b>${inline(t.title)}</b>`,
                 t.description.trim() && mdToHtml(t.description),
                 t.decisionRequest.trim() && `<span style="color:#9a3412"><b>${esc(st.decisionLabel || "Arbitrage demandé")} :</b></span> ${mdToHtml(t.decisionRequest)}`,
               ),

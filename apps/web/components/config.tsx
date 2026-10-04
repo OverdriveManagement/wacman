@@ -12,7 +12,7 @@ import { api, toast } from "@/lib/api";
 import { COLORS, tone } from "@/lib/format";
 import type { Option, OptionKind, Sprint, Stream } from "@/lib/types";
 import { useAcc } from "./AccountContext";
-import { Field, Modal, Toggle, useConfirm } from "./ui";
+import { Field, Modal, Toggle, useConfirm, useSubmit } from "./ui";
 import { IconTrash } from "./icons";
 import { RichField } from "./RichText";
 
@@ -143,7 +143,7 @@ export function SprintModal({ item, onClose, onSaved }: { item: Sprint | "new" |
     setKey(k);
     setF(item && item !== "new" ? { name: item.name, startDate: item.startDate, endDate: item.endDate, state: item.state, objective: item.objective, clientMilestone: item.clientMilestone } : blank());
   }
-  const save = async () => {
+  const [save, saving] = useSubmit(async () => {
     if (!f.name.trim()) return toast("error", "Le nom du sprint est obligatoire.");
     if (f.startDate && f.endDate && f.startDate > f.endDate) return toast("error", "La fin doit suivre le début.");
     const data = { ...f, name: f.name.trim() };
@@ -155,7 +155,7 @@ export function SprintModal({ item, onClose, onSaved }: { item: Sprint | "new" |
     await acc.mutate();
     onSaved?.(s);
     onClose();
-  };
+  });
   return (
     <Modal
       open={!!item}
@@ -180,7 +180,7 @@ export function SprintModal({ item, onClose, onSaved }: { item: Sprint | "new" |
           <button className="btn" onClick={onClose}>
             Annuler
           </button>
-          <button className="btn btn-primary" onClick={save}>
+          <button className="btn btn-primary" disabled={saving} onClick={() => save()}>
             {item === "new" ? "Créer le sprint" : "Enregistrer"}
           </button>
         </>
@@ -253,7 +253,7 @@ export function StreamModal({ item, onClose }: { item: Stream | "new" | null; on
     setKey(k);
     setF(item && item !== "new" ? { name: item.name, emoji: item.emoji, leader: item.leader, prescriber: item.prescriber, active: item.active, inKanban: item.inKanban, inStatusTemplate: item.inStatusTemplate, inDirectory: item.inDirectory } : blank);
   }
-  const save = async () => {
+  const [save, saving] = useSubmit(async () => {
     if (!f.name.trim()) return toast("error", "Le nom du stream est obligatoire.");
     const data = { ...f, name: f.name.trim() };
     if (item === "new") await api(`${acc.base}/e/stream`, { method: "POST", json: { ...data, order: Math.max(0, ...acc.data.streams.map((s) => s.order)) + 1 } });
@@ -261,7 +261,7 @@ export function StreamModal({ item, onClose }: { item: Stream | "new" | null; on
     toast("success", item === "new" ? "Stream créé." : "Stream enregistré.");
     await acc.mutate();
     onClose();
-  };
+  });
   return (
     <Modal
       open={!!item}
@@ -286,7 +286,7 @@ export function StreamModal({ item, onClose }: { item: Stream | "new" | null; on
           <button className="btn" onClick={onClose}>
             Annuler
           </button>
-          <button className="btn btn-primary" onClick={save}>
+          <button className="btn btn-primary" disabled={saving} onClick={() => save()}>
             {item === "new" ? "Créer le stream" : "Enregistrer"}
           </button>
         </>
@@ -349,7 +349,7 @@ export function OptionModal({ item, kind, onClose, onSaved }: { item: Option | "
     setF(item && item !== "new" ? { label: item.label, emoji: item.emoji, color: item.color, meta: item.meta ?? {} } : blank);
   }
   const list = acc.byKind(kind);
-  const save = async () => {
+  const [save, saving] = useSubmit(async () => {
     if (!f.label.trim()) return toast("error", "Le libellé est obligatoire.");
     const data = { label: f.label.trim(), emoji: f.emoji, color: f.color, meta: f.meta };
     const o =
@@ -359,7 +359,7 @@ export function OptionModal({ item, kind, onClose, onSaved }: { item: Option | "
     await acc.mutate();
     onSaved?.(o);
     onClose();
-  };
+  });
   const metaToggle = kind === "CARD_STATUS" ? { key: "done", label: "Colonne « terminé » (fin du flux)" } : kind === "RISK_STATUS" ? { key: "closed", label: "Statut « clos »" } : null;
   return (
     <Modal
@@ -385,7 +385,7 @@ export function OptionModal({ item, kind, onClose, onSaved }: { item: Option | "
           <button className="btn" onClick={onClose}>
             Annuler
           </button>
-          <button className="btn btn-primary" onClick={save}>
+          <button className="btn btn-primary" disabled={saving} onClick={() => save()}>
             Enregistrer
           </button>
         </>

@@ -3,7 +3,7 @@ import { and, eq, inArray, asc, desc, sql, type SQL } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "./db.js";
 import * as T from "./schema.js";
-import { assertRole, badRequest, notFound, type Ctx, type Role } from "./context.js";
+import { assertRole, badRequest, isUuid, notFound, type Ctx, type Role } from "./context.js";
 import { audit, diff } from "./audit.js";
 
 /**
@@ -15,7 +15,13 @@ import { audit, diff } from "./audit.js";
 const str = z.string().max(20000);
 const optStr = str.optional();
 const idOrNull = z.string().min(1).nullable().optional();
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format attendu AAAA-MM-JJ").nullable().optional();
+/** Date réelle au format AAAA-MM-JJ (le 30 février est refusé avec un message, pas une erreur 500). */
+const isRealDate = (v: string) => {
+  const d = new Date(`${v}T12:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+};
+const realDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Format attendu AAAA-MM-JJ").refine(isRealDate, "Date inexistante");
+const dateStr = realDate.nullable().optional();
 const color = z.enum(["blue", "teal", "ocre", "red", "amber", "slate", "violet", "green"]).optional();
 
 export interface EntityDef {
@@ -196,7 +202,7 @@ export const ENTITIES = {
     description: "Séance d'un type de séance, à une date donnée.",
     create: z.object({
       meetingTypeId: z.string().min(1),
-      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      date: realDate,
       notes: optStr,
     }),
   },
@@ -279,7 +285,7 @@ export const ENTITIES = {
       mitigation: optStr,
       instance: optStr,
       dueDate: dateStr,
-      openedAt: dateStr,
+      openedAt: realDate.optional(),
       ownerId: idOrNull,
       cardIds: z.array(z.string()).optional(),
     }),
@@ -326,6 +332,18 @@ async function withCardIds(rows: Record<string, unknown>[]): Promise<Record<stri
     .from(T.riskCards)
     .where(inArray(T.riskCards.riskId, rows.map((r) => r.id as string)));
   return rows.map((r) => ({ ...r, cardIds: links.filter((l) => l.riskId === r.id).map((l) => l.cardId) }));
+}
+
+/** Supprime les doublons des listes d'identifiants (cartes liées, statuts). */
+function dedupeArrays(data: Record<string, unknown>) {
+  for (const k of ["cardIds", "statusIds"]) if (Array.isArray(data[k])) data[k] = [...new Set(data[k] as unknown[])];
+  return data;
+}
+
+function checkSprintDates(s: Record<string, unknown>) {
+  if (typeof s.startDate === "string" && typeof s.endDate === "string" && s.startDate > s.endDate) {
+    throw badRequest("La date de début du sprint doit précéder sa date de fin.");
+  }
 }
 
 /** Vérifie que les références (stream, sprint, option, contact, séance...) appartiennent bien au compte. */
@@ -379,6 +397,17 @@ async function checkRefs(ctx: Ctx, data: Record<string, unknown>, model?: string
       if (!found.length) throw badRequest(`Référence invalide pour ${field} : ${v}`);
     }
   }
+  // contact relié à un utilisateur : l'utilisateur doit exister et avoir accès au compte (ou être super-administrateur)
+  if (model === "contact" && typeof data.userId === "string" && data.userId) {
+    if (!isUuid(data.userId)) throw badRequest("Utilisateur invalide.");
+    const [u] = await db
+      .select({ id: T.users.id, isSuperAdmin: T.users.isSuperAdmin, m: T.memberships.id })
+      .from(T.users)
+      .leftJoin(T.memberships, and(eq(T.memberships.userId, T.users.id), eq(T.memberships.accountId, ctx.accountId)))
+      .where(eq(T.users.id, data.userId))
+      .limit(1);
+    if (!u || (!u.m && !u.isSuperAdmin)) throw badRequest("Cet utilisateur n'a pas accès au compte.");
+  }
   for (const field of ["statusIds", "cardIds"]) {
     const arr = data[field];
     if (Array.isArray(arr) && arr.length) {
@@ -395,15 +424,25 @@ async function checkRefs(ctx: Ctx, data: Record<string, unknown>, model?: string
   }
 }
 
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-}
-
 export async function listEntities(ctx: Ctx, name: string, filters: Record<string, string | boolean> = {}) {
   const def = getEntity(name);
   const t = table(def);
   const conds: SQL[] = [eq(t.accountId, ctx.accountId)];
-  for (const [k, v] of Object.entries(filters)) if (k in t) conds.push(eq(t[k], v));
+  for (const [k, v] of Object.entries(filters)) {
+    if (!(k in t) || k === "accountId") continue;
+    // filtre adapté au type de colonne : une valeur impossible ne renvoie rien au lieu d'une erreur 500
+    const col = t[k] as { dataType?: string; columnType?: string };
+    if (col.columnType === "PgUUID" && !isUuid(v)) return [];
+    if (col.dataType === "number") {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return [];
+      conds.push(eq(t[k], n));
+      continue;
+    }
+    if (col.dataType === "boolean" && typeof v !== "boolean") return [];
+    if (col.dataType === "json") continue;
+    conds.push(eq(t[k], v));
+  }
   const rows = (await db.select().from(t).where(and(...conds)).orderBy(...orderClauses(def))) as Record<string, unknown>[];
   return def.model === "risk" ? withCardIds(rows) : rows;
 }
@@ -422,8 +461,9 @@ export async function createEntity(ctx: Ctx, name: string, input: unknown) {
   assertRole(ctx, def.editRole);
   const parsed = def.create.safeParse(input);
   if (!parsed.success) throw badRequest("Données invalides.", parsed.error.flatten());
-  const data = { ...(parsed.data as Record<string, unknown>) };
+  const data = dedupeArrays({ ...(parsed.data as Record<string, unknown>) });
   if (def.model === "card") checkCardDates(data);
+  if (def.model === "sprint") checkSprintDates(data);
   await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
@@ -471,10 +511,19 @@ export async function updateEntity(ctx: Ctx, name: string, id: string, input: un
   const schema = def.parent === "meeting" ? def.create.partial().omit({ meetingId: true }) : def.create.partial();
   const parsed = schema.safeParse(input);
   if (!parsed.success) throw badRequest("Données invalides.", parsed.error.flatten());
-  const data = { ...(parsed.data as Record<string, unknown>) };
+  const data = dedupeArrays({ ...(parsed.data as Record<string, unknown>) });
   if (name === "option" && "kind" in data && data.kind !== before.kind) throw badRequest("Le type d'une liste ne peut pas changer.");
   if (name === "meeting") delete data.meetingTypeId;
   if (def.model === "card") checkCardDates({ ...before, ...data });
+  if (def.model === "sprint") checkSprintDates({ ...before, ...data });
+  if (name === "meeting" && typeof data.date === "string" && data.date !== before.date) {
+    const [clash] = await db
+      .select({ id: T.meetings.id })
+      .from(T.meetings)
+      .where(and(eq(T.meetings.accountId, ctx.accountId), eq(T.meetings.meetingTypeId, before.meetingTypeId as string), eq(T.meetings.date, data.date)))
+      .limit(1);
+    if (clash) throw badRequest("Une séance de ce type existe déjà à cette date.");
+  }
   await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
@@ -519,6 +568,12 @@ export async function deleteEntity(ctx: Ctx, name: string, id: string) {
   }
   const t = table(def);
   await db.transaction(async (tx) => {
+    // un statut de stream supprimé est retiré des lignes de séance qui le portaient (sinon l'export devient inimportable)
+    if (name === "option" && before.kind === "STREAM_STATUS") {
+      await tx.execute(
+        sql`update stream_statuses set status_ids = status_ids - ${id}::text where account_id = ${ctx.accountId} and status_ids ? ${id}::text`,
+      );
+    }
     await tx.delete(t).where(eq(t.id, id));
     await audit(ctx, name, id, "delete", `${def.label} supprimé(e) : ${String(before[def.titleField] ?? "").slice(0, 120)}`, {}, tx);
   });

@@ -41,6 +41,10 @@ export async function buildApp() {
     if (req.url.startsWith("/api/") && req.url !== "/api/health") {
       const user = await resolveUser(req);
       if (user) req.user = user;
+      // un jeton en lecture seule ne peut rien modifier par l'API REST (le serveur MCP filtre ses outils lui-même)
+      if (req.readOnlyToken && !["GET", "HEAD", "OPTIONS"].includes(req.method) && !req.url.startsWith("/api/mcp")) {
+        throw new HttpError(403, "Ce jeton d'accès est en lecture seule.");
+      }
     }
   });
 

@@ -73,6 +73,30 @@ export function Toasts() {
   );
 }
 
+/**
+ * Action d'enregistrement protégée contre le double envoi (double clic, Entrée maintenue) :
+ * un second appel pendant que le premier est en cours est ignoré.
+ */
+export function useSubmit<A extends unknown[]>(fn: (...a: A) => Promise<unknown> | unknown) {
+  const running = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const run = async (...a: A) => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
+    try {
+      await fn(...a);
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
+  };
+  return [run, busy] as const;
+}
+
+/** Pile des fenêtres ouvertes (la dernière est au-dessus). */
+const modalStack: symbol[] = [];
+
 export function Modal({
   open,
   onClose,
@@ -88,16 +112,29 @@ export function Modal({
   footer?: ReactNode;
   wide?: boolean;
 }) {
+  const idRef = useRef(Symbol("modal"));
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
-    const h = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const me = idRef.current;
+    modalStack.push(me);
+    // Échap ne ferme que la fenêtre du dessus (une confirmation par-dessus une carte, par exemple)
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || modalStack[modalStack.length - 1] !== me) return;
+      e.stopPropagation();
+      closeRef.current();
+    };
     window.addEventListener("keydown", h);
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", h);
-      document.body.style.overflow = "";
+      const i = modalStack.lastIndexOf(me);
+      if (i >= 0) modalStack.splice(i, 1);
+      // le défilement de la page n'est rendu qu'à la fermeture de la dernière fenêtre
+      if (!modalStack.length) document.body.style.overflow = "";
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open || typeof document === "undefined") return null;
   // rendu à la racine du document : un parent avec effet de flou (en-tête) ne décale plus la fenêtre
   return createPortal(
@@ -109,7 +146,7 @@ export function Modal({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-line-soft px-5 py-4">
-          <div className="min-w-0 flex-1 font-display text-lg font-bold text-ink">{title}</div>
+          <div className="min-w-0 flex-1 font-display text-lg font-bold text-ink [overflow-wrap:anywhere]">{title}</div>
           <button className="btn btn-ghost btn-sm -mr-2" onClick={onClose} aria-label="Fermer">
             <IconX />
           </button>
@@ -211,7 +248,23 @@ export function InlineText({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
-  useEffect(() => setDraft(value), [value]);
+  // pendant la saisie, un rafraîchissement venu du serveur n'écrase pas ce qui est en cours de frappe
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+  // cases à cocher : chaque clic part de la dernière valeur envoyée, pas d'une valeur pas encore rechargée
+  const shown = useRef(value);
+  const [local, setLocal] = useState(value);
+  useEffect(() => {
+    shown.current = value;
+    setLocal(value);
+  }, [value]);
+  const toggle = (i: number) => {
+    const next = toggleCheckLine(shown.current, i);
+    shown.current = next;
+    setLocal(next);
+    onSave(next);
+  };
   useEffect(() => {
     if (editing && ref.current) ref.current.focus();
   }, [editing]);
@@ -248,11 +301,11 @@ export function InlineText({
       onKeyDown={(e) => !disabled && e.key === "Enter" && setEditing(true)}
       className={`min-h-[1.5rem] rounded-md ${disabled ? "" : "cursor-text hover:bg-surface-2/70"} ${className}`}
     >
-      {value?.trim() ? (
+      {local?.trim() ? (
         render ? (
-          render(value)
+          render(local)
         ) : (
-          <Markdown text={value} onToggleCheck={disabled ? undefined : (i) => onSave(toggleCheckLine(value, i))} />
+          <Markdown text={local} onToggleCheck={disabled ? undefined : toggle} />
         )
       ) : !disabled ? (
         <span className="text-sm text-muted/70">{placeholder}</span>
@@ -314,7 +367,10 @@ export function OptionSelect({
               e.preventDefault();
               submit();
             }
-            if (e.key === "Escape") setCreating(false);
+            if (e.key === "Escape") {
+              e.stopPropagation();
+              setCreating(false);
+            }
           }}
         />
         <button type="button" className="btn btn-primary btn-sm shrink-0" disabled={busy || !draft.trim()} onClick={submit}>

@@ -167,8 +167,11 @@ export function Assistant({
         }
       }
     } catch (e) {
-      if ((e as Error).name !== "AbortError")
-        update((m) => ({ ...m, error: (e as Error).message }));
+      if ((e as Error).name === "AbortError") {
+        // arrêt demandé : une action déjà lancée a pu aboutir côté serveur, on rafraîchit par précaution
+        changed = true;
+        update((m) => ({ ...m, content: m.content || "Arrêté." }));
+      } else update((m) => ({ ...m, error: (e as Error).message }));
     } finally {
       setBusy(false);
       abortRef.current = null;

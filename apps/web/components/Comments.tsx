@@ -9,6 +9,7 @@ import { useAcc } from "./AccountContext";
 import { useMe } from "@/lib/hooks";
 import { Markdown } from "./Markdown";
 import { RichTextarea } from "./RichText";
+import { useSubmit } from "./ui";
 import { IconTrash } from "./icons";
 
 export function Comments({ entityType, entityId, onCount }: { entityType: string; entityId: string; onCount?: (n: number) => void }) {
@@ -17,19 +18,13 @@ export function Comments({ entityType, entityId, onCount }: { entityType: string
   const key = `${acc.base}/comments/${entityType}/${entityId}`;
   const { data, mutate } = useSWR<Comment[]>(key, fetcher);
   const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
-  const send = async () => {
+  const [send, busy] = useSubmit(async () => {
     if (!body.trim()) return;
-    setBusy(true);
-    try {
-      await api(key, { method: "POST", json: { body } });
-      setBody("");
-      const list = await mutate();
-      onCount?.(list?.length ?? 0);
-    } finally {
-      setBusy(false);
-    }
-  };
+    await api(key, { method: "POST", json: { body } });
+    setBody("");
+    const list = await mutate();
+    onCount?.(list?.length ?? 0);
+  });
   return (
     <div className="space-y-3">
       {(data ?? []).length === 0 && <p className="text-sm text-muted">Aucun commentaire.</p>}
@@ -63,11 +58,14 @@ export function Comments({ entityType, entityId, onCount }: { entityType: string
           value={body}
           onChange={setBody}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              send();
+            }
           }}
         />
         <div className="flex justify-end">
-          <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()} onClick={send}>
+          <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()} onClick={() => send()}>
             Commenter
           </button>
         </div>

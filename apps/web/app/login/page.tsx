@@ -42,7 +42,8 @@ function LoginForm() {
     try {
       await api("/api/auth/verify", { method: "POST", json: { challengeId: challenge.challengeId, code }, silent: true });
       const next = params.get("next");
-      router.replace(next && next.startsWith("/") ? next : "/");
+      // seul un chemin interne est accepté (pas « //site.example » ni « /\site.example »)
+      router.replace(next && /^\/(?![/\\])/.test(next) ? next : "/");
     } catch (err) {
       setError((err as Error).message);
       if ((err as Error).message.includes("Recommencez")) {

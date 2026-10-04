@@ -78,7 +78,10 @@ export async function runAssistant(ctx: Ctx, prompt: string, history: { role: "u
         finalText += delta;
         sse(reply, { type: "text", delta });
       });
-      const msg = await stream.finalMessage();
+      const stopStream = () => stream.abort();
+      reply.raw.once("close", stopStream);
+      const msg = await stream.finalMessage().finally(() => reply.raw.off("close", stopStream));
+      if (aborted) break;
       inTok += msg.usage.input_tokens;
       outTok += msg.usage.output_tokens;
       messages.push({ role: "assistant", content: msg.content });
@@ -87,6 +90,8 @@ export async function runAssistant(ctx: Ctx, prompt: string, history: { role: "u
 
       const results: Anthropic.ToolResultBlockParam[] = [];
       for (const u of uses) {
+        // « Arrêter » : aucune action supplémentaire n'est exécutée après la déconnexion du navigateur
+        if (aborted) break;
         const tool = tools.find((t) => t.name === u.name);
         sse(reply, { type: "tool", name: u.name, input: u.input });
         try {
@@ -98,12 +103,15 @@ export async function runAssistant(ctx: Ctx, prompt: string, history: { role: "u
           }
           results.push({ type: "tool_result", tool_use_id: u.id, content: JSON.stringify(out).slice(0, 60000) });
         } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
+          // erreurs métier détaillées ; erreurs techniques masquées (pas de requête SQL renvoyée au modèle)
+          const message = e instanceof HttpError ? e.message : "erreur technique lors de l'opération";
+          if (!(e instanceof HttpError)) req.log.error({ err: e }, "assistant tool");
           const details = e instanceof HttpError && e.details ? ` ${JSON.stringify(e.details)}` : "";
           if (tool?.write) actions.push({ tool: u.name, input: u.input, ok: false, error: message });
           results.push({ type: "tool_result", tool_use_id: u.id, content: `Erreur : ${message}${details}`, is_error: true });
         }
       }
+      if (aborted) break;
       messages.push({ role: "user", content: results });
       if (finalText && !finalText.endsWith("\n")) {
         finalText += "\n\n";
@@ -112,9 +120,11 @@ export async function runAssistant(ctx: Ctx, prompt: string, history: { role: "u
     }
     sse(reply, { type: "done", actions: actions.length, usage: { input: inTok, output: outTok } });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    req.log.error({ err: e }, "assistant");
-    sse(reply, { type: "error", message: `L'assistant n'a pas pu terminer : ${message}` });
+    if (!aborted) {
+      const message = e instanceof HttpError ? e.message : e instanceof Error && /anthropic|api|overloaded|rate/i.test(e.message) ? e.message : "erreur technique";
+      req.log.error({ err: e }, "assistant");
+      sse(reply, { type: "error", message: `L'assistant n'a pas pu terminer : ${message}` });
+    }
   } finally {
     clearInterval(keepAlive);
     if (!reply.raw.writableEnded) reply.raw.end();

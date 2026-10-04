@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from "react";
+import { parseLine, tokenizeInline, type MarkToken } from "@/lib/markup";
 
 /**
  * Rendu du balisage léger saisi dans WacMan (voir RichText.tsx) :
@@ -7,36 +8,49 @@ import { Fragment, type ReactNode } from "react";
  * Volontairement simple : le texte reste lisible tel quel dans les exports.
  */
 
-const TOKEN = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|==[^=]+==|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*\s](?:[^*]*[^*\s])?\*)/g;
+function render(tokens: MarkToken[], key: string): ReactNode[] {
+  return tokens.map((k, i) => {
+    const kk = `${key}-${i}`;
+    switch (k.t) {
+      case "text":
+        return <Fragment key={kk}>{k.v}</Fragment>;
+      case "code":
+        return (
+          <code key={kk} className="rounded bg-surface-3 px-1 py-0.5 font-mono text-[0.85em]">
+            {k.v}
+          </code>
+        );
+      case "link":
+        return (
+          <a key={kk} href={k.href} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()}>
+            {render(k.children, kk)}
+          </a>
+        );
+      case "b":
+        return <strong key={kk}>{render(k.children, kk)}</strong>;
+      case "i":
+        return <em key={kk}>{render(k.children, kk)}</em>;
+      case "u":
+        return <u key={kk}>{render(k.children, kk)}</u>;
+      case "s":
+        return (
+          <s key={kk} className="opacity-75">
+            {render(k.children, kk)}
+          </s>
+        );
+      case "mark":
+        return (
+          <mark key={kk} className="rounded-sm px-0.5 text-inherit" style={{ background: "color-mix(in srgb, var(--amber) 35%, transparent)" }}>
+            {render(k.children, kk)}
+          </mark>
+        );
+    }
+  });
+}
 
+/** Rendu d'une ligne de texte : règles communes à l'affichage et aux exports (lib/markup.ts). */
 function inline(text: string, key: string): ReactNode[] {
-  const out: ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-  let i = 0;
-  const re = new RegExp(TOKEN.source, "g");
-  while ((m = re.exec(text))) {
-    if (m.index > last) out.push(<Fragment key={`${key}-t${i++}`}>{text.slice(last, m.index)}</Fragment>);
-    const tok = m[0];
-    const k = `${key}-${i++}`;
-    if (tok.startsWith("**")) out.push(<strong key={k}>{inline(tok.slice(2, -2), k)}</strong>);
-    else if (tok.startsWith("__")) out.push(<u key={k}>{inline(tok.slice(2, -2), k)}</u>);
-    else if (tok.startsWith("~~")) out.push(<s key={k} className="opacity-75">{inline(tok.slice(2, -2), k)}</s>);
-    else if (tok.startsWith("==")) out.push(<mark key={k} className="rounded-sm px-0.5 text-inherit" style={{ background: "color-mix(in srgb, var(--amber) 35%, transparent)" }}>{inline(tok.slice(2, -2), k)}</mark>);
-    else if (tok.startsWith("`")) out.push(<code key={k} className="rounded bg-surface-3 px-1 py-0.5 font-mono text-[0.85em]">{tok.slice(1, -1)}</code>);
-    else if (tok.startsWith("[")) {
-      const lm = /\[([^\]]+)\]\(([^)\s]+)\)/.exec(tok)!;
-      const href = /^(https?:|mailto:)/.test(lm[2]) ? lm[2] : `https://${lm[2]}`;
-      out.push(
-        <a key={k} href={href} target="_blank" rel="noreferrer noopener" onClick={(e) => e.stopPropagation()}>
-          {inline(lm[1], k)}
-        </a>,
-      );
-    } else out.push(<em key={k}>{inline(tok.slice(1, -1), k)}</em>);
-    last = m.index + tok.length;
-  }
-  if (last < text.length) out.push(<Fragment key={`${key}-e`}>{text.slice(last)}</Fragment>);
-  return out;
+  return render(tokenizeInline(text), key);
 }
 
 type Block =
@@ -65,21 +79,19 @@ export function Markdown({
   const blocks: Block[] = [];
   const lastBlock = () => blocks[blocks.length - 1];
   lines.forEach((line, i) => {
-    let m: RegExpExecArray | null;
-    if ((m = /^\s*\[( |x|X)\]\s+(.*)$/.exec(line))) {
-      const b = lastBlock();
-      const item = { text: m[2], done: m[1] !== " ", i };
+    const l = parseLine(line);
+    const b = lastBlock();
+    if (l.kind === "check") {
+      const item = { text: l.text, done: !!l.done, i };
       if (b?.t === "check") b.items.push(item);
       else blocks.push({ t: "check", items: [item] });
-    } else if ((m = /^\s*(?:•|-|\*)\s+(.*)$/.exec(line)) && !line.trim().startsWith("**")) {
-      const b = lastBlock();
-      if (b?.t === "ul") b.items.push({ text: m[1], i });
-      else blocks.push({ t: "ul", items: [{ text: m[1], i }] });
-    } else if ((m = /^\s*(\d+)[.)]\s+(.*)$/.exec(line))) {
-      const b = lastBlock();
-      if (b?.t === "ol") b.items.push({ text: m[2], i });
-      else blocks.push({ t: "ol", start: Number(m[1]), items: [{ text: m[2], i }] });
-    } else if ((m = /^\s*#{1,3}\s+(.*)$/.exec(line))) blocks.push({ t: "h", line: m[1], i });
+    } else if (l.kind === "bullet") {
+      if (b?.t === "ul") b.items.push({ text: l.text, i });
+      else blocks.push({ t: "ul", items: [{ text: l.text, i }] });
+    } else if (l.kind === "number") {
+      if (b?.t === "ol") b.items.push({ text: l.text, i });
+      else blocks.push({ t: "ol", start: l.n ?? 1, items: [{ text: l.text, i }] });
+    } else if (l.kind === "heading") blocks.push({ t: "h", line: l.text, i });
     else if (!line.trim()) blocks.push({ t: "sp", i });
     else blocks.push({ t: "p", line, i });
   });

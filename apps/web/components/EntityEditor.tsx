@@ -88,13 +88,13 @@ export function EntityEditor<T extends { id: string } & Record<string, unknown>>
           </div>
         );
       case "date":
-        return <input type="date" className="input !py-1 text-sm" defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value || null })} />;
+        return <input type="date" className="input !py-1 text-sm" key={String(v ?? "")} defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value || null })} />;
       case "multiline":
-        return <textarea className="input !py-1 text-sm" rows={2} defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value })} />;
+        return <textarea className="input !py-1 text-sm" rows={2} key={String(v ?? "")} defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value })} />;
       case "emoji":
-        return <input className="input !w-14 !px-1 !py-1 text-center" maxLength={8} defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value })} />;
+        return <input className="input !w-14 !px-1 !py-1 text-center" maxLength={8} key={String(v ?? "")} defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value })} />;
       default:
-        return <input className="input !py-1 text-sm" defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value })} />;
+        return <input className="input !py-1 text-sm" key={String(v ?? "")} defaultValue={String(v ?? "")} onBlur={(e) => e.target.value !== (v ?? "") && save(r.id, { [c.key]: e.target.value })} />;
     }
   };
 

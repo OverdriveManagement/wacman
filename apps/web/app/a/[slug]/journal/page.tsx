@@ -67,7 +67,7 @@ export default function JournalPage() {
                     {e.viaAssistant && <span className="ml-1 rounded bg-surface-3 px-1.5 py-0.5 text-[0.65rem] text-accent">assistant</span>}
                   </td>
                   <td className="whitespace-nowrap">{TYPES[e.entityType] ?? e.entityType}</td>
-                  <td>{e.summary}</td>
+                  <td className="[overflow-wrap:anywhere]">{e.summary}</td>
                 </tr>
               ))}
             </tbody>

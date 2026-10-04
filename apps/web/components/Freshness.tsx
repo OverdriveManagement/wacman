@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { api, toast } from "@/lib/api";
-import { COLORS, frDate, tone } from "@/lib/format";
+import { COLORS, tone } from "@/lib/format";
 import { DEFAULT_FRESHNESS, daysLabel, daysSince, freshnessError, freshnessLevel, rangeLabel } from "@/lib/freshness";
 import type { Card, FreshnessSettings } from "@/lib/types";
 import { useAcc } from "./AccountContext";
@@ -27,7 +27,7 @@ export function FreshnessTag({ card, force = false }: { card: Pick<Card, "conten
   const days = daysSince(iso);
   if (days === null || (!force && (!f.enabled || (f.hideDone && acc.isDone(card.statusId))))) return null;
   const { level } = freshnessLevel(days, f);
-  return <FreshPill days={days} emoji={level.emoji} color={level.color} title={`Contenu modifié le ${frDate(new Date(iso).toISOString())}${days ? `, il y a ${days} jour${days > 1 ? "s" : ""}` : ", aujourd'hui"}${level.label ? ` (${level.label})` : ""}`} />;
+  return <FreshPill days={days} emoji={level.emoji} color={level.color} title={`Contenu modifié le ${new Date(iso).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })}${days ? `, il y a ${days} jour${days > 1 ? "s" : ""}` : ", aujourd'hui"}${level.label ? ` (${level.label})` : ""}`} />;
 }
 
 function FreshPill({ days, emoji, color, title }: { days: number; emoji: string; color: string; title?: string }) {

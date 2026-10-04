@@ -305,6 +305,7 @@ export interface Dashboard {
   overdue: CardLite[];
   overdueCount: number;
   dueSoon: CardLite[];
+  dueSoonCount?: number;
   mine: CardLite[] | null;
   risks: {
     open: number;

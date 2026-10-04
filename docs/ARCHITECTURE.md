@@ -52,6 +52,10 @@ Le registre `packages/core/src/entities.ts` décrit chaque entité éditable (sc
 | `tokens.ts` | Jetons d'accès personnels : création, liste, révocation, résolution |
 | `transfer.ts` | Import et export d'un compte (format `wacman-account-v1`) |
 
+Le balisage léger est découpé par un seul module, `packages/core/src/markup.ts` (`tokenizeInline`, `parseLine`, `markupToPlain`), copié à l'identique dans `apps/web/lib/markup.ts` (le script `tools/check_markup_sync.sh` vérifie que les deux copies sont identiques). L'affichage (`Markdown.tsx`), le compte rendu (`lib/reportHtml.ts`, `lib/report.ts`), Excel (`exports/data.ts`) et PowerPoint (`exports/pptx.ts`) en dérivent.
+
+Les identifiants sont contrôlés par `isUuid` (`context.ts`, format strict) avant toute requête ; les filtres de liste génériques sont adaptés au type de colonne (une valeur impossible renvoie une liste vide).
+
 Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le format UUID, l'appartenance au compte et, pour les listes de valeurs, le type attendu selon le champ (par exemple `statusId` d'une carte dans CARD_STATUS, d'un risque dans RISK_STATUS).
 
 ## Serveur MCP (apps/api/src/mcp.ts)
@@ -65,7 +69,9 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 
 - Mot de passe haché (bcrypt, coût 11), code e-mail à 6 chiffres haché (SHA-256), session JWT HS256 de 14 jours dans un cookie HttpOnly, SameSite Lax, Secure en production.
 - `session_version` sur l'utilisateur : incrémentée au changement de mot de passe (y compris par « mot de passe oublié ») ou à la désactivation, elle invalide les sessions ouvertes.
-- Jeton d'accès personnel (`Bearer wac_…`) accepté sur toutes les routes REST et sur le serveur MCP ; refusé pour créer des jetons, changer de mot de passe ou appeler l'assistant intégré. En lecture seule, le contexte est ramené au rôle Lecteur (et sans droits de super-administrateur).
+- Jeton d'accès personnel (`Bearer wac_…`) accepté sur toutes les routes REST et sur le serveur MCP ; refusé pour créer des jetons, changer de mot de passe ou appeler l'assistant intégré. En lecture seule, le contexte est ramené au rôle Lecteur (`ctx.readOnly`, `assertWritable`) et toute requête REST autre que GET est refusée par un crochet global (`server.ts`).
+- Jeton court de l'assistant (10 min) : accepté uniquement sur `POST /api/accounts/:compte/assistant` (`resolveUser`).
+- Codes à 6 chiffres : l'essai est compté par un `UPDATE … attempts = attempts + 1 WHERE attempts < 5 RETURNING` avant la comparaison, ce qui borne aussi les essais simultanés. Limitation des tentatives en mémoire par IP et par e-mail (table purgée au-delà de 5 000 entrées).
 
 ## Interface (apps/web)
 
@@ -78,6 +84,7 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 - Étiquettes : `components/Tag.tsx` (`TagSelect`, `TagMulti`, `DateTag`, pastille `EmptyDot`, `Popover` rendu en portail) remplacent les listes déroulantes visibles.
 - Fraîcheur : `components/Freshness.tsx` (étiquette, éditeur et fenêtre des paliers) et `lib/freshness.ts` (jours calendaires à l'heure de Paris, palier, contrôles identiques à l'API).
 - Planning : `components/Planning.tsx` (Gantt en HTML et CSS, glisser au jour près par événements pointeur ; règles de barre partagées avec la slide PowerPoint : début prévu ou début du sprint, échéance ou fin du sprint, jalon si échéance seule).
+- Saisie fiable : `useSubmit` (`components/ui.tsx`) ignore un second envoi pendant le premier ; `whenIdle()` (`lib/api.ts`) attend la fin des écritures en cours (utilisé par « Copier le CR ») ; les fenêtres (`Modal`) forment une pile : Échap et le verrouillage du défilement ne concernent que la fenêtre du dessus ; `acc.mutate()` rafraîchit aussi toutes les données du compte (cartes, séances, tableau de bord).
 - Mise en forme : `components/RichText.tsx` (barre d'outils, raccourcis, prolongation des listes ; transformations pures sur le texte et la sélection) et `components/Markdown.tsx` (rendu, cases cliquables). Le balisage léger est retiré ou converti par `plain()` (API) et `plainText()` (compte rendu texte), converti en HTML d'e-mail à styles en ligne par `mdToHtml()` (`lib/reportHtml.ts` : `meetingReportHtml()` et `copyRich()`, qui pose `text/html` et `text/plain` dans le presse-papiers, avec repli par sélection et copie), et converti en segments mis en forme par `runs()` (PowerPoint).
 
 ## Migrations
