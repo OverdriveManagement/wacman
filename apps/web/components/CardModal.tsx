@@ -5,6 +5,7 @@ import { api, toast } from "@/lib/api";
 import { dateTime } from "@/lib/format";
 import type { Card } from "@/lib/types";
 import { useAcc } from "./AccountContext";
+import { useCreators } from "@/lib/hooks";
 import { Comments, History } from "./Comments";
 import { Field, InlineText, Modal, OptionSelect, Pill, useConfirm } from "./ui";
 import { IconCopy, IconTrash } from "./icons";
@@ -26,6 +27,7 @@ export function CardModal({
   const [tab, setTab] = useState<"comments" | "history">("comments");
   const [histKey, setHistKey] = useState(0);
   const confirm = useConfirm();
+  const create = useCreators(acc);
   useEffect(() => setC(card), [card]);
   if (!c) return null;
   const ro = !acc.canEdit;
@@ -59,10 +61,10 @@ export function CardModal({
           <OptionSelect disabled={ro} options={acc.byKind("CARD_STATUS")} value={c.statusId} onChange={(v) => save({ statusId: v })} placeholder="Sans statut" />
         </Field>
         <Field label="Stream">
-          <OptionSelect disabled={ro} options={streams} value={c.streamId} onChange={(v) => save({ streamId: v })} />
+          <OptionSelect disabled={ro} options={streams} value={c.streamId} onChange={(v) => save({ streamId: v })} onCreate={create.stream} createLabel="Nouveau stream…" />
         </Field>
         <Field label="Porteur">
-          <OptionSelect disabled={ro} options={contacts} value={c.ownerId} onChange={(v) => save({ ownerId: v })} />
+          <OptionSelect disabled={ro} options={contacts} value={c.ownerId} onChange={(v) => save({ ownerId: v })} onCreate={create.contact} createLabel="Nouveau contact…" />
         </Field>
         <Field label="Sprint">
           <OptionSelect disabled={ro} options={sprints} value={c.sprintId} onChange={(v) => save({ sprintId: v })} />
@@ -79,12 +81,37 @@ export function CardModal({
         <Block label="Prochaines étapes">
           <InlineText multiline disabled={ro} value={c.nextSteps} onSave={(v) => save({ nextSteps: v })} className="text-sm text-ink-2" />
         </Block>
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Vigilance / Alerte">
             <OptionSelect disabled={ro} options={acc.byKind("ALERT_LEVEL")} value={c.alertLevelId} onChange={(v) => save({ alertLevelId: v })} placeholder="Ni vigilance ni alerte" />
           </Field>
+          <Field label="Début prévu" hint={!c.startDate && c.sprintId ? "à défaut, début du sprint" : undefined}>
+            <input
+              className="input"
+              type="date"
+              disabled={ro}
+              value={c.startDate ?? ""}
+              max={c.dueDate ?? undefined}
+              onChange={(e) => {
+                const v = e.target.value || null;
+                if (v && c.dueDate && v > c.dueDate) return toast("error", "Le début prévu doit précéder l'échéance.");
+                save({ startDate: v });
+              }}
+            />
+          </Field>
           <Field label="Échéance">
-            <input className="input" type="date" disabled={ro} value={c.dueDate ?? ""} onChange={(e) => save({ dueDate: e.target.value || null })} />
+            <input
+              className="input"
+              type="date"
+              disabled={ro}
+              value={c.dueDate ?? ""}
+              min={c.startDate ?? undefined}
+              onChange={(e) => {
+                const v = e.target.value || null;
+                if (v && c.startDate && v < c.startDate) return toast("error", "L'échéance doit suivre le début prévu.");
+                save({ dueDate: v });
+              }}
+            />
           </Field>
         </div>
         <div

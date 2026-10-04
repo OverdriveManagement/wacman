@@ -22,6 +22,8 @@ Règles :
 - Les décisions d'un sujet se saisissent dans decisionRequest sur une ligne « Décision : … ».
 - Une carte en vigilance ou en alerte a un alertLevelId et ses alertes vont dans alertsNote ; sinon les actions vont dans nextSteps.
 - Rédaction en français, sobre : pas de tiret cadratin, pas de flèches, phrases simples, vocabulaire du programme (build, stream, sprint, livrable).
+- Mise en forme possible dans les textes saisis : **gras**, *italique*, listes « - » ou « 1. », cases « [ ] » ; rester sobre.
+- Une carte peut porter un début prévu (startDate) et une échéance (dueDate) : ils alimentent le planning du Program weekly.
 - À la fin, résume en quelques lignes ce que tu as fait (éléments créés ou modifiés), sans recopier tout le contenu.`;
 }
 

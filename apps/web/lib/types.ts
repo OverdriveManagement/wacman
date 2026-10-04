@@ -91,7 +91,17 @@ export interface Contact {
   userId: string | null;
 }
 
-export type MeetingBlock = "HIGHLIGHTS" | "STREAM_STATUS" | "TOPICS";
+export type MeetingBlock = "HIGHLIGHTS" | "STREAM_STATUS" | "TOPICS" | "ALERT_CARDS" | "PLANNING";
+
+/** Blocs d'un type de séance, dans l'ordre d'affichage. Les deux derniers sont des vues à date du kanban. */
+export const BLOCK_LABELS: Record<MeetingBlock, string> = {
+  HIGHLIGHTS: "Faits marquants",
+  STREAM_STATUS: "Statut des streams",
+  TOPICS: "Sujets",
+  ALERT_CARDS: "Cartes en vigilance ou en alerte (à date)",
+  PLANNING: "Planning des cartes par stream (à date)",
+};
+export const BLOCK_ORDER: MeetingBlock[] = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "ALERT_CARDS", "PLANNING"];
 
 export interface MeetingType {
   id: string;
@@ -148,6 +158,7 @@ export interface Card {
   progressNote: string;
   nextSteps: string;
   alertsNote: string;
+  startDate: string | null;
   dueDate: string | null;
   progressPct: number | null;
   position: number;

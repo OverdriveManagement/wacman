@@ -6,6 +6,14 @@ import type { Meeting, MeetingType } from "./types";
 export function plainText(s: string | null | undefined): string {
   return (s ?? "")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/==([^=]+)==/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*/g, "$1$2")
+    .replace(/^(\s*)#{1,3}\s+/gm, "$1")
+    .replace(/^(\s*)\[[xX]\]\s+/gm, "$1[fait] ")
+    .replace(/^(\s*)\[ \]\s+/gm, "$1[à faire] ")
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
     .replace(/[ \t]+$/gm, "")
     .trim();

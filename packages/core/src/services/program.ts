@@ -95,6 +95,7 @@ export async function duplicateCard(ctx: Ctx, cardId: string) {
     progressNote: card.progressNote,
     nextSteps: card.nextSteps,
     alertsNote: card.alertsNote,
+    startDate: card.startDate,
     dueDate: card.dueDate,
     progressPct: card.progressPct,
     streamId: card.streamId,

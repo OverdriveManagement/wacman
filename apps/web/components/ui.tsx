@@ -6,7 +6,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { onToast } from "@/lib/api";
 import { tone } from "@/lib/format";
 import type { Option } from "@/lib/types";
-import { Markdown } from "./Markdown";
+import { Markdown, toggleCheckLine } from "./Markdown";
+import { RichTextarea } from "./RichText";
 import { IconChevronDown, IconInfo, IconX } from "./icons";
 
 export function Spinner({ label = "Chargement…" }: { label?: string }) {
@@ -186,7 +187,10 @@ export function SectionTitle({ children, actions, icon }: { children: ReactNode;
   );
 }
 
-/** Texte éditable au clic : sauvegarde à la sortie du champ (ou Ctrl+Entrée). */
+/**
+ * Texte éditable au clic : sauvegarde à la sortie du champ (ou Ctrl+Entrée), Échap annule.
+ * En multi-ligne, une barre de mise en forme accompagne la saisie et les cases à cocher sont cliquables en lecture.
+ */
 export function InlineText({
   value,
   onSave,
@@ -209,43 +213,32 @@ export function InlineText({
   const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
   useEffect(() => setDraft(value), [value]);
   useEffect(() => {
-    if (editing && ref.current) {
-      ref.current.focus();
-      if (multiline) {
-        ref.current.style.height = "auto";
-        ref.current.style.height = `${ref.current.scrollHeight + 2}px`;
-      }
-    }
-  }, [editing, multiline]);
+    if (editing && ref.current) ref.current.focus();
+  }, [editing]);
   const commit = async () => {
     setEditing(false);
     if (draft !== value) await onSave(draft);
   };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      setDraft(value);
+      setEditing(false);
+    }
+    if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      commit();
+    }
+  };
   if (editing && !disabled) {
-    const common = {
-      ref,
-      value: draft,
-      className: `input ${className}`,
-      onBlur: commit,
-      onChange: (e: React.ChangeEvent<HTMLTextAreaElement & HTMLInputElement>) => {
-        setDraft(e.target.value);
-        if (multiline) {
-          e.target.style.height = "auto";
-          e.target.style.height = `${e.target.scrollHeight + 2}px`;
-        }
-      },
-      onKeyDown: (e: React.KeyboardEvent) => {
-        if (e.key === "Escape") {
-          setDraft(value);
-          setEditing(false);
-        }
-        if (e.key === "Enter" && (!multiline || e.metaKey || e.ctrlKey)) {
-          e.preventDefault();
-          commit();
-        }
-      },
-    };
-    return multiline ? <textarea rows={3} {...common} /> : <input {...common} />;
+    if (multiline)
+      return (
+        <div onClick={(e) => e.stopPropagation()}>
+          <RichTextarea ref={ref} rows={3} value={draft} onChange={setDraft} onBlur={commit} onKeyDown={onKeyDown} className={className} />
+          <div className="mt-1 text-[0.65rem] text-muted">Ctrl+Entrée ou clic à l'extérieur pour enregistrer, Échap pour annuler.</div>
+        </div>
+      );
+    return <input ref={ref} value={draft} className={`input ${className}`} onBlur={commit} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKeyDown} onClick={(e) => e.stopPropagation()} />;
   }
   return (
     <div
@@ -255,7 +248,17 @@ export function InlineText({
       onKeyDown={(e) => !disabled && e.key === "Enter" && setEditing(true)}
       className={`min-h-[1.5rem] rounded-md ${disabled ? "" : "cursor-text hover:bg-surface-2/70"} ${className}`}
     >
-      {value?.trim() ? (render ? render(value) : <Markdown text={value} />) : !disabled ? <span className="text-sm text-muted/70">{placeholder}</span> : <span className="text-muted">-</span>}
+      {value?.trim() ? (
+        render ? (
+          render(value)
+        ) : (
+          <Markdown text={value} onToggleCheck={disabled ? undefined : (i) => onSave(toggleCheckLine(value, i))} />
+        )
+      ) : !disabled ? (
+        <span className="text-sm text-muted/70">{placeholder}</span>
+      ) : (
+        <span className="text-muted">-</span>
+      )}
     </div>
   );
 }
@@ -267,6 +270,8 @@ export function OptionSelect({
   placeholder = "Aucun",
   disabled,
   className = "",
+  onCreate,
+  createLabel = "Nouvelle valeur…",
 }: {
   options: { id: string; label: string; emoji?: string }[];
   value: string | null | undefined;
@@ -274,9 +279,66 @@ export function OptionSelect({
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** création à la volée (comme une étiquette dans un outil de tickets) : renvoie l'identifiant créé */
+  onCreate?: (label: string) => Promise<string | null | void>;
+  createLabel?: string;
 }) {
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const label = draft.trim();
+    if (!label || !onCreate) return setCreating(false);
+    setBusy(true);
+    try {
+      const id = await onCreate(label);
+      if (id) onChange(id);
+      setCreating(false);
+      setDraft("");
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (creating)
+    return (
+      <div className={`flex gap-1 ${className}`}>
+        <input
+          className="input"
+          autoFocus
+          placeholder={createLabel.replace(/…$/, "")}
+          value={draft}
+          disabled={busy}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+            if (e.key === "Escape") setCreating(false);
+          }}
+        />
+        <button type="button" className="btn btn-primary btn-sm shrink-0" disabled={busy || !draft.trim()} onClick={submit}>
+          OK
+        </button>
+        <button type="button" className="btn btn-sm shrink-0" onClick={() => setCreating(false)} aria-label="Annuler">
+          ✕
+        </button>
+      </div>
+    );
   return (
-    <select className={`input ${className}`} value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value || null)}>
+    <select
+      className={`input ${className}`}
+      value={value ?? ""}
+      disabled={disabled}
+      onChange={(e) => {
+        if (e.target.value === "__new__") {
+          setDraft("");
+          setCreating(true);
+          return;
+        }
+        onChange(e.target.value || null);
+      }}
+    >
       <option value="">{placeholder}</option>
       {options.map((o) => (
         <option key={o.id} value={o.id}>
@@ -284,6 +346,7 @@ export function OptionSelect({
           {o.label}
         </option>
       ))}
+      {onCreate && <option value="__new__">+ {createLabel}</option>}
     </select>
   );
 }

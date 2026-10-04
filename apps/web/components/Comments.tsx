@@ -8,6 +8,7 @@ import type { AuditEntry, Comment } from "@/lib/types";
 import { useAcc } from "./AccountContext";
 import { useMe } from "@/lib/hooks";
 import { Markdown } from "./Markdown";
+import { RichTextarea } from "./RichText";
 import { IconTrash } from "./icons";
 
 export function Comments({ entityType, entityId, onCount }: { entityType: string; entityId: string; onCount?: (n: number) => void }) {
@@ -55,12 +56,12 @@ export function Comments({ entityType, entityId, onCount }: { entityType: string
         </div>
       ))}
       <div className="flex flex-col gap-2">
-        <textarea
-          className="input"
+        <RichTextarea
+          compact
           rows={2}
           placeholder="Ajouter un commentaire… (Ctrl+Entrée pour envoyer)"
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={setBody}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
           }}

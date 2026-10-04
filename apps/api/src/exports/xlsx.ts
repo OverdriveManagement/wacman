@@ -36,6 +36,7 @@ export async function buildCardsWorkbook(ctx: Ctx, sprintId?: string) {
     { header: "Vigilance / Alerte", key: "alert", width: 15 },
     { header: "Porteur", key: "owner", width: 18 },
     { header: "Sprint", key: "sprint", width: 10 },
+    { header: "Début prévu", key: "start", width: 12 },
     { header: "Échéance", key: "due", width: 12 },
     { header: "Avancement %", key: "pct", width: 12 },
     { header: "Description", key: "description", width: 50 },
@@ -53,6 +54,7 @@ export async function buildCardsWorkbook(ctx: Ctx, sprintId?: string) {
       alert: d.optLabel(c.alertLevelId, false),
       owner: d.contactName(c.ownerId),
       sprint: d.sprintName(c.sprintId),
+      start: c.startDate ? new Date(`${c.startDate}T00:00:00Z`) : null,
       due: c.dueDate ? new Date(`${c.dueDate}T00:00:00Z`) : null,
       pct: c.progressPct,
       description: plain(c.description),
@@ -61,6 +63,7 @@ export async function buildCardsWorkbook(ctx: Ctx, sprintId?: string) {
       alerts: plain(c.alertsNote),
       updated: c.updatedAt,
     });
+    row.getCell("start").numFmt = "dd/mm/yyyy";
     row.getCell("due").numFmt = "dd/mm/yyyy";
     row.getCell("updated").numFmt = "dd/mm/yyyy hh:mm";
     const color = c.alertLevelId ? d.opt.get(c.alertLevelId)?.color : undefined;

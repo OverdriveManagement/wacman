@@ -4,76 +4,200 @@ import useSWR from "swr";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, download, fetcher, toast } from "@/lib/api";
-import { longDate, todayIso, tone } from "@/lib/format";
-import type { Highlight, Meeting, MeetingType, StreamStatus, Topic } from "@/lib/types";
+import { frDate, longDate, todayIso, tone } from "@/lib/format";
+import type { Card, Highlight, Meeting, MeetingType, StreamStatus, Topic } from "@/lib/types";
 import { useAcc } from "@/components/AccountContext";
-import { useMe } from "@/lib/hooks";
+import { useCreators, useMe } from "@/lib/hooks";
 import { Markdown } from "@/components/Markdown";
 import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pill, Spinner, useConfirm } from "@/components/ui";
 import { Comments, History } from "@/components/Comments";
-import { IconChevronDown, IconComment, IconCopy, IconDown, IconDownload, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
+import { IconChevron, IconComment, IconCopy, IconDown, IconDownload, IconEdit, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
 import { meetingReportText } from "@/lib/report";
+import { AlertCards } from "@/components/AlertCards";
+import { Planning } from "@/components/Planning";
+import { CardModal } from "@/components/CardModal";
+import { MeetingTypeModal } from "@/components/MeetingTypeModal";
+import { Menu, OptionModal } from "@/components/config";
+import { RichField } from "@/components/RichText";
 
+/**
+ * Page d'un type de séance (Program weekly, COPROJ, Strategic Committee…) : une séance à la fois,
+ * choisie dans le sélecteur (la plus récente par défaut), avec ses blocs saisis par séance
+ * (faits marquants, statut des streams, sujets) puis les vues à date du kanban
+ * (cartes en vigilance ou en alerte, planning des cartes par stream).
+ */
 export default function MeetingsPage() {
   const acc = useAcc();
   const { typeId } = useParams<{ typeId: string }>();
   const type = acc.data.meetingTypes.find((t) => t.id === typeId);
   const { data: meetings, mutate } = useSWR<Meeting[]>(type ? `${acc.base}/meetings?typeId=${typeId}` : null, fetcher);
+  const live = !!type && (type.blocks.includes("ALERT_CARDS") || type.blocks.includes("PLANNING"));
+  const { data: cards, mutate: mutateCards } = useSWR<Card[]>(live ? `${acc.base}/cards` : null, fetcher);
   const [creating, setCreating] = useState<"empty" | "previous" | null>(null);
-  const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
+  const [selected, setSelected] = useState<string | null>(null);
+  const [openCard, setOpenCard] = useState<Card | null>(null);
+  const [typeEdit, setTypeEdit] = useState<MeetingType | "new" | null>(null);
   const params = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
   const target = params.get("m");
-  // lien direct vers une séance (recherche, tableau de bord) : on l'ouvre, on la montre, puis le lien est retiré de l'adresse
+  const confirm = useConfirm();
+
+  // lien direct vers une séance (recherche, tableau de bord) : sélectionnée, puis le lien est retiré de l'adresse
   useEffect(() => {
     if (!target || !meetings) return;
-    if (meetings.some((m) => m.id === target)) {
-      setOpenIds((o) => ({ ...o, [meetings[0].id]: meetings[0].id === target, [target]: true }));
-      setTimeout(() => document.getElementById(`meeting-${target}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
-    }
+    if (meetings.some((m) => m.id === target)) setSelected(target);
     router.replace(pathname, { scroll: false });
   }, [target, meetings, router, pathname]);
+
   if (!type) return <Empty>Type de séance introuvable.</Empty>;
+  const idx = meetings ? Math.max(0, meetings.findIndex((m) => m.id === selected)) : 0;
+  const meeting = meetings?.[idx] ?? null;
+  const stored = type.blocks.filter((b) => b === "HIGHLIGHTS" || b === "STREAM_STATUS" || b === "TOPICS");
+  const reload = () => mutate();
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
+      {/* en-tête du type de séance */}
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="font-display text-2xl font-bold text-ink">
             {type.emoji} {type.name}
           </h1>
           {type.frequency && <p className="text-sm text-muted">{type.frequency}</p>}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {acc.canEdit && (
+        <div className="flex flex-wrap items-center gap-2">
+          {acc.canEdit && stored.length > 0 && (
             <>
-              <button className="btn btn-primary" onClick={() => setCreating("empty")}>
-                <IconPlus /> Nouvelle séance
+              <button className="btn btn-primary btn-sm" onClick={() => setCreating("previous")} disabled={!meetings?.length} title="Recopie la séance précédente à une nouvelle date">
+                <IconCopy /> Nouvelle séance à partir de la précédente
               </button>
-              <button className="btn" onClick={() => setCreating("previous")} disabled={!meetings?.length}>
-                <IconCopy /> À partir de la précédente
+              <button className="btn btn-sm" onClick={() => setCreating("empty")}>
+                <IconPlus /> Séance vide
               </button>
             </>
           )}
-          <button className="btn" onClick={() => download(`${acc.base}/export/meetings.xlsx?typeId=${type.id}`)}>
-            <IconDownload /> Excel
-          </button>
+          {stored.length > 0 && (
+            <button className="btn btn-sm" onClick={() => download(`${acc.base}/export/meetings.xlsx?typeId=${type.id}`)} title="Toutes les séances de ce type, en Excel">
+              <IconDownload /> Excel
+            </button>
+          )}
+          {acc.isAdmin && (
+            <Menu
+              label="Options du type de séance"
+              items={[
+                { label: "Modifier ce type de séance", onClick: () => setTypeEdit(type) },
+                { label: "Nouveau type de séance", onClick: () => setTypeEdit("new") },
+              ]}
+            />
+          )}
         </div>
       </div>
       <Callout text={type.description} icon={type.emoji || "💡"} />
 
-      {!meetings ? (
-        <Spinner />
-      ) : !meetings.length ? (
-        <Empty>Aucune séance pour l'instant. Créez la première avec « Nouvelle séance ».</Empty>
-      ) : (
-        <div className="space-y-4">
-          {meetings.map((m, i) => {
-            const open = openIds[m.id] ?? i === 0;
-            return <MeetingSection key={m.id} meeting={m} type={type} open={open} onToggle={() => setOpenIds({ ...openIds, [m.id]: !open })} reload={() => mutate()} />;
-          })}
-        </div>
+      {/* séance affichée */}
+      {stored.length > 0 &&
+        (!meetings ? (
+          <Spinner />
+        ) : !meeting ? (
+          <Empty>Aucune séance pour l'instant. {acc.canEdit ? "Créez la première avec « Séance vide »." : ""}</Empty>
+        ) : (
+          <section className="card overflow-hidden">
+            <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-3 py-2.5 md:px-4">
+              <button className="btn btn-ghost btn-sm !px-1.5" disabled={idx >= meetings.length - 1} onClick={() => setSelected(meetings[idx + 1].id)} aria-label="Séance précédente" title="Séance précédente">
+                <IconChevron className="rotate-180" />
+              </button>
+              <select className="input !w-auto min-w-0 flex-1 font-display !text-base font-bold text-heading sm:flex-none" value={meeting.id} onChange={(e) => setSelected(e.target.value)} aria-label="Séance">
+                {meetings.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {type.name} du {longDate(m.date)}
+                  </option>
+                ))}
+              </select>
+              <button className="btn btn-ghost btn-sm !px-1.5" disabled={idx <= 0} onClick={() => setSelected(meetings[idx - 1].id)} aria-label="Séance suivante" title="Séance suivante">
+                <IconChevron />
+              </button>
+              {meeting.date > todayIso() && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold text-accent">à venir</span>}
+              <div className="flex-1" />
+              <button
+                className="btn btn-ghost btn-sm"
+                title="Copier le compte rendu (texte prêt pour un e-mail)"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(meetingReportText(meeting, type, acc));
+                    toast("success", "Compte rendu copié : collez-le dans votre e-mail.");
+                  } catch {
+                    toast("error", "Copie impossible dans ce navigateur.");
+                  }
+                }}
+              >
+                <IconCopy /> <span className="hidden sm:inline">Copier le CR</span>
+              </button>
+              <a className="btn btn-ghost btn-sm" href={`/print/${acc.data.account.slug}/meeting/${meeting.id}`} target="_blank" rel="noreferrer" title="Imprimer ou enregistrer en PDF">
+                <IconPrint /> <span className="hidden sm:inline">PDF</span>
+              </a>
+              {acc.canEdit && (
+                <Menu
+                  label="Options de la séance"
+                  items={[
+                    {
+                      label: "Changer la date",
+                      onClick: () => {
+                        const el = document.getElementById(`date-${meeting.id}`) as HTMLInputElement | null;
+                        el?.showPicker?.();
+                        el?.focus();
+                      },
+                    },
+                    "sep",
+                    {
+                      label: "Supprimer la séance",
+                      danger: true,
+                      onClick: () =>
+                        confirm.ask("Supprimer la séance", `La séance du ${longDate(meeting.date)} et tout son contenu seront supprimés.`, async () => {
+                          await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "DELETE" });
+                          setSelected(null);
+                          reload();
+                        }),
+                    },
+                  ]}
+                />
+              )}
+              {acc.canEdit && (
+                <input
+                  id={`date-${meeting.id}`}
+                  type="date"
+                  className="input !w-auto !py-1 text-xs"
+                  value={meeting.date}
+                  onChange={async (e) => {
+                    if (!e.target.value) return;
+                    await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "PATCH", json: { date: e.target.value } });
+                    reload();
+                  }}
+                  aria-label="Date de la séance"
+                  title="Date de la séance"
+                />
+              )}
+            </div>
+            <div className="space-y-8 p-3 md:p-4">
+              {stored.includes("HIGHLIGHTS") && <HighlightsBlock meeting={meeting} reload={reload} />}
+              {stored.includes("STREAM_STATUS") && <StatusBlock meeting={meeting} type={type} reload={reload} />}
+              {stored.includes("TOPICS") && <TopicsBlock meeting={meeting} type={type} reload={reload} />}
+            </div>
+          </section>
+        ))}
+
+      {/* vues à date du kanban */}
+      {type.blocks.includes("ALERT_CARDS") && (
+        <section>
+          <LiveTitle icon="🚨" title="Cartes en vigilance ou en alerte" />
+          <AlertCards cards={cards} onOpen={setOpenCard} />
+        </section>
+      )}
+      {type.blocks.includes("PLANNING") && (
+        <section>
+          <LiveTitle icon="🗓️" title="Planning des livrables par stream" />
+          <Planning cards={cards} onOpen={setOpenCard} onSaved={() => mutateCards()} />
+        </section>
       )}
 
       {type.guide && (
@@ -88,9 +212,32 @@ export default function MeetingsPage() {
         onClose={() => setCreating(null)}
         onCreated={(m) => {
           mutate();
-          setOpenIds({ [m.id]: true });
+          setSelected(m.id);
         }}
       />
+      <CardModal
+        card={openCard}
+        onClose={() => setOpenCard(null)}
+        onChanged={(c, removed) => {
+          if (!c) return mutateCards();
+          mutateCards((list) => (removed ? (list ?? []).filter((x) => x.id !== c.id) : (list ?? []).map((x) => (x.id === c.id ? { ...x, ...c } : x))), { revalidate: false });
+        }}
+        onDuplicated={(c) => (mutateCards(), setOpenCard(c))}
+      />
+      <MeetingTypeModal item={typeEdit} onClose={() => setTypeEdit(null)} />
+      {confirm.node}
+    </div>
+  );
+}
+
+function LiveTitle({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 className="section-title flex items-center gap-2">
+        <span>{icon}</span>
+        {title}
+      </h2>
+      <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">Vision à date : situation au {frDate(todayIso())}</span>
     </div>
   );
 }
@@ -136,88 +283,13 @@ function NewMeetingModal({ type, mode, onClose, onCreated }: { type: MeetingType
               ? "Les sujets du comité précédent sont recopiés (picto, ordre, thématique, nature, description, arbitrage demandé) sans les lignes « Décision : … »."
               : type.blocks.includes("STREAM_STATUS")
                 ? "Pour chaque stream, le statut, l'avancement et les alertes de la séance précédente sont recopiés."
-                : "Les faits marquants de la séance précédente sont recopiés à la nouvelle date."
+                : "Les faits marquants de la séance précédente sont recopiés à la nouvelle date : il ne reste qu'à modifier ce qui a changé."
             : type.blocks.includes("STREAM_STATUS")
               ? "Les streams marqués « ligne de séance » sont créés vides."
               : "La séance est créée vide."}
         </p>
       </div>
     </Modal>
-  );
-}
-
-function MeetingSection({ meeting, type, open, onToggle, reload }: { meeting: Meeting; type: MeetingType; open: boolean; onToggle: () => void; reload: () => void }) {
-  const acc = useAcc();
-  const confirm = useConfirm();
-  const count = meeting.highlights.length + meeting.statuses.length + meeting.topics.length;
-  return (
-    <section id={`meeting-${meeting.id}`} className="card scroll-mt-20 overflow-hidden">
-      <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-3">
-        <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={onToggle} aria-expanded={open}>
-          <IconChevronDown className={`shrink-0 text-muted transition ${open ? "" : "-rotate-90"}`} />
-          <span className="truncate font-display text-lg font-bold text-heading">
-            {type.name} du {longDate(meeting.date)}
-          </span>
-          <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{count}</span>
-        </button>
-        {open && (
-          <div className="flex items-center gap-1">
-            <button
-              className="btn btn-ghost btn-sm"
-              title="Copier le compte rendu (texte prêt pour un e-mail)"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(meetingReportText(meeting, type, acc));
-                  toast("success", "Compte rendu copié : collez-le dans votre e-mail.");
-                } catch {
-                  toast("error", "Copie impossible dans ce navigateur.");
-                }
-              }}
-            >
-              <IconCopy /> <span className="hidden sm:inline">Copier le CR</span>
-            </button>
-            <a className="btn btn-ghost btn-sm" href={`/print/${acc.data.account.slug}/meeting/${meeting.id}`} target="_blank" rel="noreferrer" title="Imprimer ou enregistrer en PDF">
-              <IconPrint /> <span className="hidden sm:inline">PDF</span>
-            </a>
-          </div>
-        )}
-        {acc.canEdit && open && (
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              className="input !w-auto !py-1 text-xs"
-              value={meeting.date}
-              onChange={async (e) => {
-                if (!e.target.value) return;
-                await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "PATCH", json: { date: e.target.value } });
-                reload();
-              }}
-              aria-label="Date de la séance"
-            />
-            <button
-              className="btn btn-ghost btn-sm btn-danger"
-              aria-label="Supprimer la séance"
-              onClick={() =>
-                confirm.ask("Supprimer la séance", `La séance du ${longDate(meeting.date)} et tout son contenu seront supprimés.`, async () => {
-                  await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "DELETE" });
-                  reload();
-                })
-              }
-            >
-              <IconTrash />
-            </button>
-          </div>
-        )}
-      </div>
-      {open && (
-        <div className="space-y-6 p-4">
-          {type.blocks.includes("HIGHLIGHTS") && <HighlightsBlock meeting={meeting} reload={reload} />}
-          {type.blocks.includes("STREAM_STATUS") && <StatusBlock meeting={meeting} type={type} reload={reload} />}
-          {type.blocks.includes("TOPICS") && <TopicsBlock meeting={meeting} type={type} reload={reload} />}
-        </div>
-      )}
-      {confirm.node}
-    </section>
   );
 }
 
@@ -234,66 +306,133 @@ async function move<T extends { id: string }>(base: string, entity: string, list
 }
 
 // ---------------------------------------------------------------------------
-// Faits marquants
+// Faits marquants : édition directe sur la carte (titre, détail, type, stream), ajout rapide
 // ---------------------------------------------------------------------------
 function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => void }) {
   const acc = useAcc();
+  const { data: meData } = useMe();
+  const create = useCreators(acc);
   const [edit, setEdit] = useState<Highlight | "new" | null>(null);
+  const [draft, setDraft] = useState("");
+  const ro = !acc.canEdit;
+  const streams = acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }));
+  const quickAdd = async () => {
+    const title = draft.trim();
+    if (!title) return;
+    const me = acc.data.contacts.find((c) => c.userId && c.userId === meData?.user.id);
+    await api(`${acc.base}/e/highlight`, { method: "POST", json: { title, meetingId: meeting.id, order: meeting.highlights.length + 1, authorId: me?.id ?? null } });
+    setDraft("");
+    reload();
+  };
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <h3 className="font-display text-base font-bold text-ink">📰 Faits marquants</h3>
-        {acc.canEdit && (
-          <button className="btn btn-sm" onClick={() => setEdit("new")}>
-            <IconPlus /> Ajouter un fait marquant
-          </button>
-        )}
+        {!ro && <span className="hidden text-xs text-muted md:inline">Cliquez sur un texte pour le modifier.</span>}
       </div>
-      {!meeting.highlights.length ? (
-        <Empty>Aucun fait marquant.</Empty>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {meeting.highlights.map((h, i) => {
-            const t = h.typeId ? acc.opt.get(h.typeId) : null;
-            const s = h.streamId ? acc.str.get(h.streamId) : null;
-            return (
-              <article key={h.id} className="group relative rounded-xl border border-line-soft bg-surface-2/60 p-4">
-                <button className="block w-full text-left" onClick={() => setEdit(h)}>
-                  <div className="mb-1 flex items-start gap-2">
-                    <h4 className="flex-1 font-display text-base font-bold leading-snug text-accent">
-                      {h.emoji && <span className="mr-1">{h.emoji}</span>}
-                      {h.title}
-                    </h4>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {meeting.highlights.map((h, i) => {
+          const t = h.typeId ? acc.opt.get(h.typeId) : null;
+          return (
+            <article key={h.id} className="group relative flex flex-col rounded-xl border border-line-soft bg-surface-2/60 p-3.5">
+              <div className="mb-1 flex items-start gap-1.5 pr-14">
+                {h.emoji && <span className="mt-0.5 text-base">{h.emoji}</span>}
+                <InlineText disabled={ro} value={h.title} onSave={async (v) => (v.trim() ? (await patch(acc.base, "highlight", h.id, { title: v.trim() }), reload()) : toast("error", "Le titre est obligatoire."))} render={(v) => <span className="font-display text-base font-bold leading-snug text-accent">{v}</span>} className="flex-1" />
+              </div>
+              <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                {ro ? (
+                  <>
                     {t && <Pill option={t} small />}
-                  </div>
-                  {s && (
-                    <div className="mb-2 text-xs font-semibold text-ocre">
-                      {s.emoji} {s.name}
-                    </div>
-                  )}
-                  <Markdown text={h.detail} className="text-sm text-ink-2" />
-                </button>
-                {acc.canEdit && (
-                  <div className="absolute right-2 top-2 hidden gap-1 group-hover:flex">
-                    <button className="btn btn-sm btn-ghost !px-1.5" aria-label="Monter" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, -1), reload())}>
-                      <IconUp width={14} height={14} />
-                    </button>
-                    <button className="btn btn-sm btn-ghost !px-1.5" aria-label="Descendre" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, 1), reload())}>
-                      <IconDown width={14} height={14} />
-                    </button>
-                  </div>
+                    {h.streamId && (
+                      <span className="text-xs font-semibold text-ocre">
+                        {acc.str.get(h.streamId)?.emoji} {acc.str.get(h.streamId)?.name}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <select
+                      className="rounded-full border border-line-soft bg-transparent px-2 py-0.5 text-[0.7rem] font-semibold"
+                      style={t ? { color: tone[t.color], borderColor: `color-mix(in srgb, ${tone[t.color]} 40%, transparent)` } : { color: "var(--muted)" }}
+                      value={h.typeId ?? ""}
+                      onChange={async (e) => (await patch(acc.base, "highlight", h.id, { typeId: e.target.value || null }), reload())}
+                      aria-label="Type"
+                    >
+                      <option value="">Type…</option>
+                      {acc.byKind("HIGHLIGHT_TYPE").map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.emoji} {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select className="max-w-[12rem] truncate rounded-full border border-line-soft bg-transparent px-2 py-0.5 text-[0.7rem] font-semibold text-ocre" value={h.streamId ?? ""} onChange={async (e) => (await patch(acc.base, "highlight", h.id, { streamId: e.target.value || null }), reload())} aria-label="Stream">
+                      <option value="">Stream…</option>
+                      {streams.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.emoji} {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </>
                 )}
-              </article>
-            );
-          })}
-        </div>
-      )}
-      <HighlightModal meeting={meeting} item={edit} onClose={() => setEdit(null)} reload={reload} />
+              </div>
+              <InlineText multiline disabled={ro} value={h.detail} onSave={async (v) => (await patch(acc.base, "highlight", h.id, { detail: v }), reload())} className="text-sm text-ink-2" placeholder="Détail du fait marquant…" />
+              <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                {!ro && (
+                  <>
+                    <button className="btn btn-sm btn-ghost !px-1" aria-label="Monter" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, -1), reload())}>
+                      <IconUp width={13} height={13} />
+                    </button>
+                    <button className="btn btn-sm btn-ghost !px-1" aria-label="Descendre" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, 1), reload())}>
+                      <IconDown width={13} height={13} />
+                    </button>
+                  </>
+                )}
+                <button className="btn btn-sm btn-ghost !px-1" aria-label="Détails, commentaires et historique" title="Détails, commentaires et historique" onClick={() => setEdit(h)}>
+                  <IconEdit width={13} height={13} />
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {!ro && (
+          <div className="flex flex-col justify-center rounded-xl border border-dashed border-line p-3.5">
+            <input
+              className="input"
+              placeholder="+ Nouveau fait marquant (titre puis Entrée)"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && quickAdd()}
+              aria-label="Nouveau fait marquant"
+            />
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-[0.7rem] text-muted">Détail, type et stream se complètent ensuite sur la carte.</span>
+              <button className="btn btn-sm shrink-0" onClick={() => setEdit("new")}>
+                Formulaire complet
+              </button>
+            </div>
+          </div>
+        )}
+        {ro && !meeting.highlights.length && <Empty>Aucun fait marquant.</Empty>}
+      </div>
+      <HighlightModal meeting={meeting} item={edit} onClose={() => setEdit(null)} reload={reload} onCreateType={create.option("HIGHLIGHT_TYPE")} />
     </div>
   );
 }
 
-function HighlightModal({ meeting, item, onClose, reload }: { meeting: Meeting; item: Highlight | "new" | null; onClose: () => void; reload: () => void }) {
+function HighlightModal({
+  meeting,
+  item,
+  onClose,
+  reload,
+  onCreateType,
+}: {
+  meeting: Meeting;
+  item: Highlight | "new" | null;
+  onClose: () => void;
+  reload: () => void;
+  onCreateType?: (label: string) => Promise<string>;
+}) {
   const acc = useAcc();
   const { data: meData } = useMe();
   const isNew = item === "new";
@@ -365,11 +504,11 @@ function HighlightModal({ meeting, item, onClose, reload }: { meeting: Meeting; 
             <OptionSelect disabled={ro} options={acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }))} value={form.streamId} onChange={(v) => setForm({ ...form, streamId: v })} />
           </Field>
           <Field label="Type">
-            <OptionSelect disabled={ro} options={acc.byKind("HIGHLIGHT_TYPE")} value={form.typeId} onChange={(v) => setForm({ ...form, typeId: v })} placeholder="Sans type" />
+            <OptionSelect disabled={ro} options={acc.byKind("HIGHLIGHT_TYPE")} value={form.typeId} onChange={(v) => setForm({ ...form, typeId: v })} placeholder="Sans type" onCreate={onCreateType} createLabel="Nouveau type…" />
           </Field>
         </div>
         <Field label="Détail" hint="**gras** et puces « • » acceptés.">
-          <textarea className="input" rows={6} disabled={ro} value={form.detail} onChange={(e) => setForm({ ...form, detail: e.target.value })} />
+          <RichField rows={6} disabled={ro} value={form.detail} onChange={(v) => setForm({ ...form, detail: v })} />
         </Field>
         {!isNew && item && (
           <details className="rounded-xl border border-line-soft px-3 py-2">
@@ -392,6 +531,7 @@ function HighlightModal({ meeting, item, onClose, reload }: { meeting: Meeting; 
 function StatusChips({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled: boolean }) {
   const acc = useAcc();
   const opts = acc.byKind("STREAM_STATUS");
+  const [adding, setAdding] = useState(false);
   if (disabled)
     return (
       <div className="flex flex-col items-start gap-1">
@@ -416,6 +556,12 @@ function StatusChips({ value, onChange, disabled }: { value: string[]; onChange:
           </button>
         );
       })}
+      {acc.isAdmin && (
+        <button className="rounded-full border border-dashed border-line px-2 py-0.5 text-[0.7rem] text-muted hover:text-accent" onClick={() => setAdding(true)} title="Nouveau statut de stream">
+          +
+        </button>
+      )}
+      <OptionModal item={adding ? "new" : null} kind="STREAM_STATUS" onClose={() => setAdding(false)} onSaved={(o) => onChange([...value, o.id])} />
     </div>
   );
 }
@@ -620,6 +766,7 @@ function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
 
 function TopicModal({ meeting, item, decisionLabel, onClose, reload }: { meeting: Meeting; item: Topic | "new" | null; decisionLabel: string; onClose: () => void; reload: () => void }) {
   const acc = useAcc();
+  const create = useCreators(acc);
   const isNew = item === "new";
   type TForm = { title: string; emoji: string; themeId: string | null; natureId: string | null; description: string; decisionRequest: string };
   const init: TForm = isNew || !item ? { title: "", emoji: "📌", themeId: null, natureId: null, description: "", decisionRequest: "" } : item;
@@ -684,17 +831,17 @@ function TopicModal({ meeting, item, decisionLabel, onClose, reload }: { meeting
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Thématique">
-            <OptionSelect disabled={ro} options={acc.byKind("TOPIC_THEME")} value={form.themeId} onChange={(v) => setForm({ ...form, themeId: v })} />
+            <OptionSelect disabled={ro} options={acc.byKind("TOPIC_THEME")} value={form.themeId} onChange={(v) => setForm({ ...form, themeId: v })} onCreate={create.option("TOPIC_THEME")} createLabel="Nouvelle thématique…" />
           </Field>
           <Field label="Nature">
-            <OptionSelect disabled={ro} options={acc.byKind("TOPIC_NATURE")} value={form.natureId} onChange={(v) => setForm({ ...form, natureId: v })} />
+            <OptionSelect disabled={ro} options={acc.byKind("TOPIC_NATURE")} value={form.natureId} onChange={(v) => setForm({ ...form, natureId: v })} onCreate={create.option("TOPIC_NATURE")} createLabel="Nouvelle nature…" />
           </Field>
         </div>
         <Field label="Description" hint="**gras** et puces « • » acceptés.">
-          <textarea className="input" rows={6} disabled={ro} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+          <RichField rows={6} disabled={ro} value={form.description} onChange={(v) => setForm({ ...form, description: v })} />
         </Field>
         <Field label={decisionLabel} hint="En séance, ajouter une ligne « Décision : … ».">
-          <textarea className="input" rows={4} disabled={ro} value={form.decisionRequest} onChange={(e) => setForm({ ...form, decisionRequest: e.target.value })} />
+          <RichField rows={4} disabled={ro} value={form.decisionRequest} onChange={(v) => setForm({ ...form, decisionRequest: v })} />
         </Field>
         {!isNew && item && (
           <details className="rounded-xl border border-line-soft px-3 py-2">

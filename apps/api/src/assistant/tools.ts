@@ -48,6 +48,7 @@ const compactCard = (c: Record<string, unknown>) => ({
   statusId: c.statusId,
   alertLevelId: c.alertLevelId,
   ownerId: c.ownerId,
+  startDate: c.startDate,
   dueDate: c.dueDate,
   progressNote: String(c.progressNote ?? "").slice(0, 300),
   alertsNote: String(c.alertsNote ?? "").slice(0, 300),

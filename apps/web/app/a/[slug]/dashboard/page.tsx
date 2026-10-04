@@ -7,7 +7,7 @@ import { fetcher } from "@/lib/api";
 import { frDate, relative, tone } from "@/lib/format";
 import type { CardLite, Dashboard } from "@/lib/types";
 import { useAcc } from "@/components/AccountContext";
-import { Empty, Pill, SectionTitle, Spinner } from "@/components/ui";
+import { Callout, Empty, Pill, SectionTitle, Spinner } from "@/components/ui";
 
 /** Tableau de bord du compte : où en est le sprint, ce qui est en retard, les risques, les séances et l'activité. */
 export default function DashboardPage() {
@@ -23,6 +23,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <Callout text={acc.data.account.settings.intro} icon="🧭" />
       {/* indicateurs clés */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 [&>*]:min-w-0">
         <Tile label={sp ? sp.name : "Sprint"} hint={sp ? `${frDate(sp.startDate)} au ${frDate(sp.endDate)}` : "Aucun sprint défini"}>

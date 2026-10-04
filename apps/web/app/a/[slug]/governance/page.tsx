@@ -1,11 +1,13 @@
 "use client";
 
-import { api, toast } from "@/lib/api";
+import { useState } from "react";
+import { api } from "@/lib/api";
 import { frDate } from "@/lib/format";
-import type { GovernanceBody, Sprint } from "@/lib/types";
+import type { GovernanceBody, Sprint, Stream } from "@/lib/types";
 import { useAcc } from "@/components/AccountContext";
 import { Callout, InlineText, SectionTitle, useConfirm } from "@/components/ui";
-import { IconDown, IconPlus, IconTrash, IconUp } from "@/components/icons";
+import { IconDown, IconEdit, IconPlus, IconTrash, IconUp } from "@/components/icons";
+import { SprintModal, StreamModal, useSprintSwitch } from "@/components/config";
 
 const STATE: Record<Sprint["state"], { label: string; color: string }> = {
   CURRENT: { label: "▶️ En cours", color: "var(--accent)" },
@@ -19,6 +21,9 @@ export default function GovernancePage() {
   const confirm = useConfirm();
   const reload = () => acc.mutate();
   const admin = acc.isAdmin;
+  const [sprintEdit, setSprintEdit] = useState<Sprint | "new" | null>(null);
+  const [streamEdit, setStreamEdit] = useState<Stream | "new" | null>(null);
+  const sw = useSprintSwitch();
 
   const patch = async (entity: string, id: string, data: unknown) => {
     await api(`${acc.base}/e/${entity}/${id}`, { method: "PATCH", json: data });
@@ -106,8 +111,6 @@ export default function GovernancePage() {
 
   const directory = acc.data.streams.filter((x) => x.inDirectory && x.active).sort((a, b) => a.order - b.order);
   const sprints = [...acc.data.sprints].sort((a, b) => a.order - b.order);
-  const current = sprints.find((x) => x.state === "CURRENT");
-  const next = current ? sprints.find((x) => x.order > current.order && x.state !== "DONE") : sprints.find((x) => x.state === "UPCOMING");
 
   return (
     <div className="space-y-10">
@@ -129,6 +132,7 @@ export default function GovernancePage() {
                 <th className="w-[34%]">Stream</th>
                 <th>{s.labels.leader}</th>
                 <th>{s.labels.prescriber}</th>
+                {admin && <th className="w-12" />}
               </tr>
             </thead>
             <tbody>
@@ -143,37 +147,40 @@ export default function GovernancePage() {
                   <td>
                     <InlineText disabled={!admin} value={st.prescriber} onSave={(v) => patch("stream", st.id, { prescriber: v })} />
                   </td>
+                  {admin && (
+                    <td>
+                      <button className="btn btn-ghost btn-sm !px-1.5" aria-label={`Modifier le stream ${st.name}`} onClick={() => setStreamEdit(st)}>
+                        <IconEdit width={14} height={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-muted">Les streams affichés ici se règlent dans Paramètres du compte, rubrique Streams.</p>
+        {admin && (
+          <button className="btn btn-sm mt-2" onClick={() => setStreamEdit("new")}>
+            <IconPlus /> Ajouter un stream
+          </button>
+        )}
       </section>
 
       <section className="space-y-4">
         <SectionTitle
           icon="🗓️"
           actions={
-            admin &&
-            current &&
-            next && (
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() =>
-                  confirm.ask(
-                    "Basculer au sprint suivant",
-                    `${current.name} passe à Terminé, ${next.name} à En cours, et les cartes non terminées de ${current.name} sont reportées dans ${next.name}.`,
-                    async () => {
-                      const r = await api<{ moved: number }>(`${acc.base}/sprints/switch`, { method: "POST", json: { fromSprintId: current.id, toSprintId: next.id } });
-                      toast("success", `${r.moved} carte(s) reportée(s) dans ${next.name}.`);
-                      reload();
-                    },
-                  )
-                }
-              >
-                Basculer au sprint suivant
-              </button>
+            admin && (
+              <>
+                <button className="btn btn-sm" onClick={() => setSprintEdit("new")}>
+                  <IconPlus /> Nouveau sprint
+                </button>
+                {sw.possible && (
+                  <button className="btn btn-primary btn-sm" onClick={sw.ask}>
+                    Basculer au sprint suivant
+                  </button>
+                )}
+              </>
             )
           }
         >
@@ -189,6 +196,7 @@ export default function GovernancePage() {
                 <th>État</th>
                 <th className="w-[38%]">Échéance {acc.data.account.clientName}</th>
                 <th className="w-[26%]">Objectif</th>
+                {admin && <th className="w-12" />}
               </tr>
             </thead>
             <tbody>
@@ -217,6 +225,13 @@ export default function GovernancePage() {
                   <td>
                     <InlineText multiline disabled={!admin} value={sp.objective} onSave={(v) => patch("sprint", sp.id, { objective: v })} />
                   </td>
+                  {admin && (
+                    <td>
+                      <button className="btn btn-ghost btn-sm !px-1.5" aria-label={`Modifier ${sp.name}`} onClick={() => setSprintEdit(sp)}>
+                        <IconEdit width={14} height={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -224,6 +239,9 @@ export default function GovernancePage() {
         </div>
       </section>
       {confirm.node}
+      {sw.node}
+      <SprintModal item={sprintEdit} onClose={() => setSprintEdit(null)} />
+      <StreamModal item={streamEdit} onClose={() => setStreamEdit(null)} />
     </div>
   );
 }

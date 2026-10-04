@@ -15,6 +15,13 @@
       "when": 1791070095112,
       "tag": "0001_tokens_reset",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791093357994,
+      "tag": "0002_card_start_planning",
+      "breakpoints": true
     }
   ]
 }

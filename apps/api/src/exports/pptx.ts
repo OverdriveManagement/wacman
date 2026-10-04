@@ -1,6 +1,6 @@
 import PptxGenJS from "pptxgenjs";
 import { getMeeting, type Ctx } from "@wacman/core";
-import { loadAccountData, latestMeetings, frDate } from "./data.js";
+import { loadAccountData, latestMeetings, frDate, plain } from "./data.js";
 
 /**
  * Export PowerPoint au gabarit Wifirst (16:9, 10 x 5,625 pouces) :
@@ -40,23 +40,53 @@ const W = 10;
 
 type Run = { text: string; options?: PptxGenJS.TextPropsOptions };
 
-/** Convertit le balisage léger (**gras**, retours à la ligne) en segments de texte PowerPoint. */
+/**
+ * Convertit le balisage léger en segments de texte PowerPoint :
+ * **gras**, *italique*, __souligné__, ~~barré~~, ==surligné==, `code`, [lien](url) ;
+ * puces « - », cases « [ ] » / « [x] », intertitres « ### ».
+ */
+const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|==[^=]+==|`[^`]+`|\[[^\]]+\]\([^)\s]+\)|\*[^*\s](?:[^*]*[^*\s])?\*)/g;
 function runs(md: string, base: PptxGenJS.TextPropsOptions = {}): Run[] {
   const out: Run[] = [];
-  const lines = (md ?? "").replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1").split("\n");
-  lines.forEach((line, li) => {
-    const parts = line.split(/(\*\*[^*]+\*\*)/g).filter((p) => p !== "");
-    if (!parts.length) parts.push(" ");
-    parts.forEach((p, pi) => {
-      const bold = p.startsWith("**") && p.endsWith("**");
-      out.push({ text: bold ? p.slice(2, -2) : p, options: { ...base, bold: bold || base.bold, breakLine: pi === parts.length - 1 && li < lines.length - 1 } });
-    });
+  const lines = (md ?? "").split("\n");
+  lines.forEach((raw, li) => {
+    let line = raw;
+    let lineOpts: PptxGenJS.TextPropsOptions = {};
+    if (/^\s*#{1,3}\s+/.test(line)) {
+      line = line.replace(/^\s*#{1,3}\s+/, "");
+      lineOpts = { bold: true };
+    }
+    line = line
+      .replace(/^(\s*)[-•*]\s+(?!\*)/, "$1• ")
+      .replace(/^(\s*)\[[xX]\]\s+/, "$1☑ ")
+      .replace(/^(\s*)\[ \]\s+/, "$1☐ ");
+    const parts: Run[] = [];
+    let last = 0;
+    let m: RegExpExecArray | null;
+    const re = new RegExp(INLINE.source, "g");
+    const push = (text: string, o: PptxGenJS.TextPropsOptions = {}) => text && parts.push({ text, options: { ...base, ...lineOpts, ...o } });
+    while ((m = re.exec(line))) {
+      push(line.slice(last, m.index));
+      const tok = m[0];
+      if (tok.startsWith("**")) push(tok.slice(2, -2), { bold: true });
+      else if (tok.startsWith("__")) push(tok.slice(2, -2), { underline: { style: "sng" } });
+      else if (tok.startsWith("~~")) push(tok.slice(2, -2), { strike: "sngStrike" });
+      else if (tok.startsWith("==")) push(tok.slice(2, -2), { highlight: "FDE68A" });
+      else if (tok.startsWith("`")) push(tok.slice(1, -1), { fontFace: "Consolas" });
+      else if (tok.startsWith("[")) push(tok.replace(/\[([^\]]+)\]\([^)]+\)/, "$1"), { color: C.blue });
+      else push(tok.slice(1, -1), { italic: true });
+      last = m.index + tok.length;
+    }
+    push(line.slice(last));
+    if (!parts.length) parts.push({ text: " ", options: { ...base } });
+    parts[parts.length - 1].options = { ...parts[parts.length - 1].options, breakLine: li < lines.length - 1 };
+    out.push(...parts);
   });
   return out;
 }
 
 const clip = (s: string, n: number) => {
-  const t = (s ?? "").replace(/\*\*/g, "").replace(/\s+\n/g, "\n").trim();
+  const t = plain(s ?? "").replace(/\s+\n/g, "\n").trim();
   return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t;
 };
 
@@ -256,6 +286,92 @@ export async function buildDeck(ctx: Ctx, opts: { sprintId?: string; meetingIds?
           }
         });
       }
+    }
+  }
+
+  // ---------------------------------------------------------------- planning (Gantt) des cartes par stream
+  if (opts.sections.includes("planning")) {
+    const all = (await d.cards()).filter((c) => !c.archived);
+    const today = new Date().toISOString().slice(0, 10);
+    const DAY = 86_400_000;
+    const t = (iso: string) => new Date(`${iso}T12:00:00Z`).getTime();
+    const bar = (c: (typeof all)[number]) => {
+      const sp = c.sprintId ? d.spr.get(c.sprintId) : undefined;
+      let a = c.startDate ?? sp?.startDate ?? null;
+      let b = c.dueDate ?? sp?.endDate ?? null;
+      if (!a && !b) return null;
+      if (!a) a = b;
+      if (!b) b = a;
+      if (a! > b!) [a, b] = [b, a];
+      return { a: a!, b: b!, milestone: !c.startDate && !sp && !!c.dueDate };
+    };
+    const open = d.sprints.filter((x) => x.state !== "DONE" && x.startDate && x.endDate);
+    // fenêtre : autour d'aujourd'hui, élargie aux barres des cartes ouvertes (au plus 120 jours)
+    const openBars = all.filter((c) => !d.isDone(c.statusId)).map(bar).filter((b): b is NonNullable<ReturnType<typeof bar>> => !!b);
+    const cur = open.find((x) => x.state === "CURRENT");
+    const winStart = Math.min(t(today) - 7 * DAY, cur ? t(cur.startDate!) : Infinity, ...openBars.map((b) => t(b.a)).filter((x) => x >= t(today) - 60 * DAY)) - 3 * DAY;
+    const winEnd = Math.max(t(today) + 35 * DAY, ...openBars.map((b) => t(b.b))) + 5 * DAY;
+    const span = Math.min(winEnd - winStart, 120 * DAY);
+    const X0 = 3.0;
+    const WT = 6.6;
+    const xOf = (ms: number) => X0 + Math.max(0, Math.min(1, (ms - winStart) / span)) * WT;
+    type Row = { kind: "stream"; label: string } | { kind: "card"; c: (typeof all)[number]; b: NonNullable<ReturnType<typeof bar>> | null };
+    const rows: Row[] = [];
+    for (const st of d.streams.filter((x) => x.active && x.inKanban)) {
+      const list = all
+        .filter((c) => c.streamId === st.id && !d.isDone(c.statusId))
+        .map((c) => ({ c, b: bar(c) }))
+        .filter((r) => !r.b || (t(r.b.b) >= winStart && t(r.b.a) <= winStart + span))
+        .sort((x, y) => (x.b?.a ?? "9").localeCompare(y.b?.a ?? "9"));
+      if (!list.length) continue;
+      rows.push({ kind: "stream", label: `${st.emoji ? st.emoji + " " : ""}${st.name}` });
+      list.forEach((r) => rows.push({ kind: "card", ...r }));
+    }
+    const perSlide = 24;
+    const ROW = 0.165;
+    for (let i = 0; i < Math.max(rows.length, 1); i += perSlide) {
+      const chunk = rows.slice(i, i + perSlide);
+      const s = newSlide(i ? "Planning des livrables (suite)" : "Planning des livrables", "Cartes non terminées, par stream. Barre rouge : alerte ; orange : vigilance ; trait pointillé : dates du sprint faute de dates propres à la carte.");
+      const top = 1.05;
+      // mois et sprints
+      for (let m = new Date(winStart); m.getTime() <= winStart + span; m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))) {
+        const x = xOf(m.getTime());
+        s.addText(m.toLocaleDateString("fr-FR", { month: "short", year: "2-digit", timeZone: "UTC" }), { x, y: top - 0.2, w: 0.8, h: 0.16, fontFace: BODY_FONT, fontSize: 6, color: C.muted, margin: 0 });
+      }
+      for (const sp of open) {
+        const x1 = xOf(t(sp.startDate!));
+        const x2 = xOf(t(sp.endDate!));
+        if (x2 - x1 > 0.05) {
+          s.addShape(pptx.ShapeType.rect, { x: x1, y: top, w: x2 - x1, h: perSlide * ROW, fill: { color: sp.state === "CURRENT" ? "EFF6FF" : C.card }, line: { color: C.line, width: 0.25 } });
+          s.addText(sp.name, { x: x1 + 0.03, y: top + 0.01, w: Math.max(0.5, x2 - x1 - 0.06), h: 0.14, fontFace: BODY_FONT, fontSize: 5.5, color: C.faint, margin: 0 });
+        }
+      }
+      chunk.forEach((r, k) => {
+        const y = top + 0.16 + k * ROW;
+        if (r.kind === "stream") {
+          s.addText(r.label, { x: 0.42, y, w: 2.5, h: ROW, fontFace: BODY_FONT, fontSize: 7, bold: true, color: C.petrol, margin: 0, valign: "middle" });
+          return;
+        }
+        const c = r.c;
+        s.addText(clip(`#${c.ref} ${c.title}`, 52), { x: 0.52, y, w: 2.45, h: ROW, fontFace: BODY_FONT, fontSize: 6, color: C.text, margin: 0, valign: "middle" });
+        if (!r.b) {
+          s.addText("non planifiée", { x: X0 + 0.02, y, w: 1.2, h: ROW, fontFace: BODY_FONT, fontSize: 5.5, italic: true, color: C.faint, margin: 0, valign: "middle" });
+          return;
+        }
+        const lvl = c.alertLevelId ? d.opt.get(c.alertLevelId) : undefined;
+        const col = lvl ? COLOR_TOKENS[lvl.color] ?? C.amber : C.blue;
+        const x1 = xOf(t(r.b.a));
+        const x2 = Math.max(x1 + 0.05, xOf(t(r.b.b) + DAY));
+        if (r.b.milestone) {
+          s.addShape(pptx.ShapeType.diamond, { x: x2 - 0.06, y: y + 0.03, w: 0.11, h: 0.11, fill: { color: col }, line: { color: col, width: 0 } });
+        } else {
+          const implied = !c.startDate || !c.dueDate;
+          s.addShape(pptx.ShapeType.roundRect, { x: x1, y: y + 0.035, w: x2 - x1, h: ROW - 0.07, rectRadius: 0.03, fill: { color: col, transparency: implied ? 55 : 0 }, line: { color: col, width: 0.5, dashType: implied ? "dash" : "solid" } });
+        }
+      });
+      const xt = xOf(t(today));
+      s.addShape(pptx.ShapeType.line, { x: xt, y: top, w: 0, h: perSlide * ROW + 0.1, line: { color: C.red, width: 1 } });
+      s.addText("Aujourd'hui", { x: xt - 0.4, y: top + perSlide * ROW + 0.1, w: 0.8, h: 0.14, fontFace: BODY_FONT, fontSize: 5.5, color: C.red, align: "center", margin: 0 });
     }
   }
 

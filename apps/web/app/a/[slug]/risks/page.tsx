@@ -7,10 +7,12 @@ import { api, fetcher, toast } from "@/lib/api";
 import { frDate, tone } from "@/lib/format";
 import type { Card, Risk } from "@/lib/types";
 import { useAcc } from "@/components/AccountContext";
+import { useCreators } from "@/lib/hooks";
 import { Markdown } from "@/components/Markdown";
 import { Comments, History } from "@/components/Comments";
 import { Empty, Field, Modal, OptionSelect, Pill, SectionTitle, Spinner, useConfirm } from "@/components/ui";
 import { IconPlus, IconTrash } from "@/components/icons";
+import { RichField } from "@/components/RichText";
 
 export default function RisksPage() {
   const acc = useAcc();
@@ -138,6 +140,7 @@ function RiskModal({ item, cards, onClose, reload }: { item: Risk | "new" | null
   }
   const confirm = useConfirm();
   const ro = !acc.canEdit;
+  const create = useCreators(acc);
   const save = async () => {
     if (!form.title.trim()) return toast("error", "Le sujet est obligatoire.");
     const data = { ...form, title: form.title.trim() };
@@ -186,21 +189,21 @@ function RiskModal({ item, cards, onClose, reload }: { item: Risk | "new" | null
         </Field>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Type">
-            <OptionSelect disabled={ro} options={acc.byKind("RISK_TYPE")} value={form.typeId} onChange={(v) => set({ typeId: v })} />
+            <OptionSelect disabled={ro} options={acc.byKind("RISK_TYPE")} value={form.typeId} onChange={(v) => set({ typeId: v })} onCreate={create.option("RISK_TYPE")} createLabel="Nouveau type…" />
           </Field>
           <Field label="Criticité">
-            <OptionSelect disabled={ro} options={acc.byKind("RISK_CRITICALITY")} value={form.criticalityId} onChange={(v) => set({ criticalityId: v })} />
+            <OptionSelect disabled={ro} options={acc.byKind("RISK_CRITICALITY")} value={form.criticalityId} onChange={(v) => set({ criticalityId: v })} onCreate={create.option("RISK_CRITICALITY")} createLabel="Nouvelle criticité…" />
           </Field>
           <Field label="Statut">
-            <OptionSelect disabled={ro} options={acc.byKind("RISK_STATUS")} value={form.statusId} onChange={(v) => set({ statusId: v })} />
+            <OptionSelect disabled={ro} options={acc.byKind("RISK_STATUS")} value={form.statusId} onChange={(v) => set({ statusId: v })} onCreate={create.option("RISK_STATUS")} createLabel="Nouveau statut…" />
           </Field>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Stream">
-            <OptionSelect disabled={ro} options={acc.data.streams.map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }))} value={form.streamId} onChange={(v) => set({ streamId: v })} />
+            <OptionSelect disabled={ro} options={acc.data.streams.map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }))} value={form.streamId} onChange={(v) => set({ streamId: v })} onCreate={create.stream} createLabel="Nouveau stream…" />
           </Field>
           <Field label="Porteur">
-            <OptionSelect disabled={ro} options={acc.data.contacts.map((c) => ({ id: c.id, label: c.name }))} value={form.ownerId} onChange={(v) => set({ ownerId: v })} />
+            <OptionSelect disabled={ro} options={acc.data.contacts.map((c) => ({ id: c.id, label: c.name }))} value={form.ownerId} onChange={(v) => set({ ownerId: v })} onCreate={create.contact} createLabel="Nouveau contact…" />
           </Field>
           <Field label="Échéance">
             <input className="input" type="date" disabled={ro} value={form.dueDate ?? ""} onChange={(e) => set({ dueDate: e.target.value || null })} />
@@ -210,10 +213,10 @@ function RiskModal({ item, cards, onClose, reload }: { item: Risk | "new" | null
           <input className="input" disabled={ro} value={form.instance} onChange={(e) => set({ instance: e.target.value })} placeholder="ex. Comité projet Build" />
         </Field>
         <Field label="Description">
-          <textarea className="input" rows={4} disabled={ro} value={form.description} onChange={(e) => set({ description: e.target.value })} />
+          <RichField rows={4} disabled={ro} value={form.description} onChange={(v) => set({ description: v })} />
         </Field>
         <Field label="Décision / mitigation">
-          <textarea className="input" rows={3} disabled={ro} value={form.mitigation} onChange={(e) => set({ mitigation: e.target.value })} />
+          <RichField rows={3} disabled={ro} value={form.mitigation} onChange={(v) => set({ mitigation: v })} />
         </Field>
         <Field label="Cartes liées">
           <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-line-soft p-2">

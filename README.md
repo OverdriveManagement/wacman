@@ -3,7 +3,8 @@
 **Wifirst Account Management** : application web de pilotage des comptes clients de Wifirst (premier compte : La Poste - PSTNG).
 
 - Comptes clients configurables (streams, sprints, listes de valeurs, types de séance, comitologie, textes).
-- Section Program Management : tableau de bord, kanban du sprint, cartes en vigilance ou en alerte, faits marquants, séances (Program weekly, COPROJ, Strategic Committee…) avec compte rendu à copier ou en PDF, risques et arbitrages, gouvernance, journal.
+- Section Program Management : tableau de bord, kanban par statut et par sprint, Program weekly (faits marquants éditables, cartes en alerte, planning Gantt par stream), séances (COPROJ, Strategic Committee…) avec compte rendu à copier ou en PDF, risques et arbitrages, gouvernance, journal.
+- Paramétrage directement dans les écrans et mise en forme des textes (gras, italique, listes, cases, liens…).
 - Recherche globale (Ctrl+K), insensible aux accents.
 - Sections Finance management et Provisioning management (à venir).
 - Connexion par mot de passe et code e-mail, mot de passe oublié, rôles par compte, commentaires et historique.

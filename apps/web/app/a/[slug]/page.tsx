@@ -1,20 +1,29 @@
 "use client";
 
 import useSWR from "swr";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { DndContext, PointerSensor, TouchSensor, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, DragOverlay, type DragStartEvent } from "@dnd-kit/core";
 import { api, fetcher } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
 import { frDate, isOverdue, tone } from "@/lib/format";
-import type { Card, Meeting } from "@/lib/types";
+import type { Card, Option, Sprint, Stream } from "@/lib/types";
 import { useAcc } from "@/components/AccountContext";
 import { CardModal } from "@/components/CardModal";
 import { Markdown } from "@/components/Markdown";
-import { Callout, Disclosure, Empty, Field, Modal, OptionSelect, Pill, SectionTitle, Spinner } from "@/components/ui";
+import { AddButton, Menu, OptionModal, SprintModal, StreamModal, swapOrder, useSprintSwitch, type MenuItem } from "@/components/config";
+import { Disclosure, Empty, Field, Modal, OptionSelect, Pill, Spinner } from "@/components/ui";
 import { IconChevronDown, IconComment, IconPlus } from "@/components/icons";
 
+type View = "status" | "sprints";
+type Col = { id: string; label: ReactNode; color?: string; menu?: MenuItem[]; hint?: string };
+type Lane = { id: string | null; label: string; leader: string; stream?: Stream };
+
+/**
+ * Onglet Kanban : le kanban du sprint en cours (colonnes = statuts, couloirs = streams)
+ * et la planification des sprints suivants (colonnes = sprints, couloirs = streams).
+ * Sprints, colonnes et streams se créent et se modifient depuis l'écran (administrateurs).
+ */
 export default function KanbanPage() {
   const acc = useAcc();
   const { data: cards, mutate } = useSWR<Card[]>(`${acc.base}/cards`, fetcher);
@@ -25,7 +34,6 @@ export default function KanbanPage() {
   const linked = params.get("card");
 
   // lien direct vers une carte (recherche, tableau de bord) : ouverte une seule fois, puis le lien est retiré de l'adresse
-  // (sinon chaque rechargement de la liste rouvrirait la carte d'origine). Une carte archivée est chargée à part.
   useEffect(() => {
     if (!linked || !cards) return;
     const c = cards.find((x) => x.id === linked);
@@ -34,371 +42,416 @@ export default function KanbanPage() {
     router.replace(pathname, { scroll: false });
   }, [linked, cards, acc.base, router, pathname]);
 
-  const close = () => setOpen(null);
-
   const onChanged = (c?: Card, removed?: boolean) => {
     if (!c) return mutate();
     mutate((list) => (removed ? (list ?? []).filter((x) => x.id !== c.id) : (list ?? []).map((x) => (x.id === c.id ? { ...x, ...c } : x))), { revalidate: false });
   };
 
   return (
-    <div className="space-y-8">
-      <Callout text={acc.data.account.settings.intro} icon="🧭" />
-      <LatestHighlights />
-      <AlertCards cards={cards} onOpen={setOpen} />
-      <Kanban cards={cards} mutate={mutate} onOpen={setOpen} />
+    <div className="space-y-6">
+      <Board cards={cards} mutate={mutate} onOpen={setOpen} />
       <Disclosure title="Mode d'emploi">
         <Markdown text={acc.data.account.settings.kanbanGuide} />
+        <p className="mt-3 text-xs text-muted">
+          Vue « Par statut » : le kanban d'un sprint. Vue « Par sprint » : glissez une carte d'un sprint à l'autre pour la replanifier. Administrateurs : « + » pour créer un sprint, une colonne ou un stream, « ⋯ » sur un en-tête pour le modifier.
+        </p>
       </Disclosure>
-      <CardModal card={open} onClose={close} onChanged={onChanged} onDuplicated={(c) => (mutate(), setOpen(c))} />
+      <CardModal card={open} onClose={() => setOpen(null)} onChanged={onChanged} onDuplicated={(c) => (mutate(), setOpen(c))} />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Derniers faits marquants
-// ---------------------------------------------------------------------------
-function LatestHighlights() {
+function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<typeof useSWR<Card[]>>["mutate"]; onOpen: (c: Card) => void }) {
   const acc = useAcc();
-  const type = acc.data.meetingTypes.find((m) => m.active && m.blocks.includes("HIGHLIGHTS"));
-  const { data } = useSWR<Meeting[]>(type ? `${acc.base}/meetings?typeId=${type.id}` : null, fetcher);
-  if (!type) return null;
-  const last = data?.[0];
-  return (
-    <section>
-      <SectionTitle
-        icon="📰"
-        actions={
-          <Link href={`/a/${acc.data.account.slug}/meetings/${type.id}`} className="btn btn-sm">
-            Toutes les séances
-          </Link>
-        }
-      >
-        Derniers faits marquants{last ? ` (${type.name} du ${frDate(last.date)})` : ""}
-      </SectionTitle>
-      {!data ? (
-        <Spinner />
-      ) : !last || !last.highlights.length ? (
-        <Empty>Aucun fait marquant pour l'instant.</Empty>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {last.highlights.map((h) => {
-            const t = h.typeId ? acc.opt.get(h.typeId) : null;
-            const s = h.streamId ? acc.str.get(h.streamId) : null;
-            return (
-              <article key={h.id} className="card p-4">
-                <div className="mb-1 flex items-start gap-2">
-                  <h3 className="flex-1 font-display text-base font-bold leading-snug text-accent">
-                    {h.emoji && <span className="mr-1">{h.emoji}</span>}
-                    {h.title}
-                  </h3>
-                  {t && <Pill option={t} small />}
-                </div>
-                {s && (
-                  <div className="mb-2 text-xs font-semibold text-ocre">
-                    {s.emoji} {s.name}
-                  </div>
-                )}
-                <Markdown text={h.detail} className="text-sm text-ink-2" />
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Cartes en vigilance ou en alerte
-// ---------------------------------------------------------------------------
-function AlertCards({ cards, onOpen }: { cards?: Card[]; onOpen: (c: Card) => void }) {
-  const acc = useAcc();
-  const list = useMemo(
-    () =>
-      (cards ?? [])
-        .filter((c) => c.alertLevelId && !acc.isDone(c.statusId))
-        .sort((a, b) => (acc.opt.get(b.alertLevelId!)?.order ?? 0) - (acc.opt.get(a.alertLevelId!)?.order ?? 0) || (acc.str.get(a.streamId ?? "")?.order ?? 0) - (acc.str.get(b.streamId ?? "")?.order ?? 0)),
-    [cards, acc],
-  );
-  return (
-    <section>
-      <SectionTitle icon="🚨">Cartes en vigilance ou en alerte</SectionTitle>
-      {!cards ? (
-        <Spinner />
-      ) : !list.length ? (
-        <Empty>Aucune carte en vigilance ou en alerte.</Empty>
-      ) : (
-        <>
-          {/* tableau (écran large) */}
-          <div className="table-wrap hidden md:block">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th className="w-[26%]">Livrable</th>
-                  <th>Niveau</th>
-                  <th>Stream</th>
-                  <th>Porteur</th>
-                  <th>Échéance</th>
-                  <th className="w-[38%]">Alertes / arbitrages</th>
-                </tr>
-              </thead>
-              <tbody>
-                {list.map((c) => {
-                  const lvl = acc.opt.get(c.alertLevelId!);
-                  const s = c.streamId ? acc.str.get(c.streamId) : null;
-                  return (
-                    <tr key={c.id} className="cursor-pointer" onClick={() => onOpen(c)} style={{ boxShadow: `inset 3px 0 0 ${tone[lvl?.color ?? "slate"]}` }}>
-                      <td className="font-semibold text-ink">{c.title}</td>
-                      <td>
-                        <Pill option={lvl} small />
-                      </td>
-                      <td className="whitespace-nowrap">{s ? `${s.emoji} ${s.name}` : ""}</td>
-                      <td className="whitespace-nowrap">{c.ownerId ? acc.ctc.get(c.ownerId)?.name : ""}</td>
-                      <td className={`whitespace-nowrap ${isOverdue(c.dueDate) ? "font-semibold text-red" : ""}`}>{frDate(c.dueDate)}</td>
-                      <td>
-                        <Markdown text={c.alertsNote} className="line-clamp-4 text-[0.82rem]" />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          {/* cartes (mobile) */}
-          <div className="space-y-2 md:hidden">
-            {list.map((c) => {
-              const lvl = acc.opt.get(c.alertLevelId!);
-              return (
-                <button key={c.id} onClick={() => onOpen(c)} className="card block w-full p-3 text-left" style={{ borderLeft: `3px solid ${tone[lvl?.color ?? "slate"]}` }}>
-                  <div className="flex items-start gap-2">
-                    <span className="flex-1 font-semibold text-ink">{c.title}</span>
-                    <Pill option={lvl} small />
-                  </div>
-                  <div className="mt-1 text-xs text-muted">
-                    {[c.streamId ? acc.str.get(c.streamId)?.name : "", c.ownerId ? acc.ctc.get(c.ownerId)?.name : "", c.dueDate ? `échéance ${frDate(c.dueDate)}` : ""].filter(Boolean).join(", ")}
-                  </div>
-                  <Markdown text={c.alertsNote} className="mt-1 line-clamp-3 text-sm text-ink-2" />
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Kanban du sprint : colonnes = statuts, couloirs = streams
-// ---------------------------------------------------------------------------
-function Kanban({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<typeof useSWR<Card[]>>["mutate"]; onOpen: (c: Card) => void }) {
-  const acc = useAcc();
+  const admin = acc.isAdmin;
   const statuses = acc.byKind("CARD_STATUS");
-  const lanes = acc.data.streams.filter((s) => s.active && s.inKanban).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
-  const [sprintId, setSprintId] = useState(acc.currentSprint?.id ?? "");
+  const sprints = useMemo(() => [...acc.data.sprints].sort((a, b) => a.order - b.order), [acc.data.sprints]);
+  const openSprints = sprints.filter((s) => s.state !== "DONE");
+  const doneSprints = sprints.filter((s) => s.state === "DONE");
+  const lanesAll = acc.data.streams.filter((s) => s.active && s.inKanban).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+
+  const [view, setView] = useState<View>("status");
+  const [sprintId, setSprintId] = useState<string>(acc.currentSprint?.id ?? "");
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState<string | null>(null);
   const [alertOnly, setAlertOnly] = useState(false);
   const [lateOnly, setLateOnly] = useState(false);
   const [mineOnly, setMineOnly] = useState(false);
-  const { data: me } = useMe();
-  const myContacts = useMemo(() => new Set(acc.data.contacts.filter((c) => c.userId && c.userId === me?.user.id).map((c) => c.id)), [acc.data.contacts, me]);
-  const [mobileStatus, setMobileStatus] = useState(statuses[1]?.id ?? statuses[0]?.id ?? "");
+  const [showDone, setShowDone] = useState(false);
+  const [mobileCol, setMobileCol] = useState<Record<View, string>>({ status: statuses[1]?.id ?? statuses[0]?.id ?? "", sprints: acc.currentSprint?.id ?? "none" });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [creating, setCreating] = useState<{ streamId: string | null; statusId: string | null } | null>(null);
+  const [creating, setCreating] = useState<{ streamId: string | null; statusId: string | null; sprintId: string | null } | null>(null);
   const [dragging, setDragging] = useState<Card | null>(null);
+  const [sprintEdit, setSprintEdit] = useState<Sprint | "new" | null>(null);
+  const [streamEdit, setStreamEdit] = useState<Stream | "new" | null>(null);
+  const [colEdit, setColEdit] = useState<Option | "new" | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const sw = useSprintSwitch();
   const isMobile = useIsMobile();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }));
+  const { data: me } = useMe();
+  const myContacts = useMemo(() => new Set(acc.data.contacts.filter((c) => c.userId && c.userId === me?.user.id).map((c) => c.id)), [acc.data.contacts, me]);
+
+  // sprint retenu toujours valide (création, suppression)
+  useEffect(() => {
+    if (sprintId && sprintId !== "none" && !acc.spr.get(sprintId)) setSprintId(acc.currentSprint?.id ?? "");
+  }, [sprintId, acc]);
 
   const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim().toLowerCase().replace(/^#/, "");
     return (cards ?? []).filter(
       (c) =>
-        (!sprintId || c.sprintId === sprintId) &&
         (!owner || c.ownerId === owner) &&
         (!alertOnly || c.alertLevelId) &&
         (!lateOnly || (isOverdue(c.dueDate) && !acc.isDone(c.statusId))) &&
         (!mineOnly || (c.ownerId && myContacts.has(c.ownerId))) &&
-        (!q || c.title.toLowerCase().includes(q) || String(c.ref) === q.replace("#", "")),
+        (!q || c.title.toLowerCase().includes(q) || String(c.ref) === q),
     );
-  }, [cards, sprintId, owner, alertOnly, lateOnly, mineOnly, myContacts, query, acc]);
-  const sprintCards = (cards ?? []).filter((c) => !sprintId || c.sprintId === sprintId);
-  const doneCount = sprintCards.filter((c) => acc.isDone(c.statusId)).length;
-  const donePct = sprintCards.length ? Math.round((doneCount / sprintCards.length) * 100) : 0;
+  }, [cards, owner, alertOnly, lateOnly, mineOnly, myContacts, query, acc]);
 
-  const cellCards = (streamId: string | null, statusId: string) =>
-    visible.filter((c) => (c.streamId ?? null) === streamId && (c.statusId ?? statuses[0]?.id) === statusId).sort((a, b) => a.position - b.position);
-  const orphans = visible.filter((c) => !c.streamId || !lanes.some((l) => l.id === c.streamId));
-  const sprint = sprintId ? acc.spr.get(sprintId) : null;
+  // ---------------------------------------------------------------- colonnes, couloirs et rangement des cartes
+  const inScope = (c: Card) =>
+    view === "status"
+      ? !sprintId || (sprintId === "none" ? !c.sprintId : c.sprintId === sprintId)
+      : (!c.sprintId || openSprints.some((s) => s.id === c.sprintId)) && (showDone || !acc.isDone(c.statusId));
+  const scoped = visible.filter(inScope);
 
+  const reorderOpt = async (i: number, dir: -1 | 1) => {
+    await swapOrder(acc.base, "option", statuses.map((s) => s.id), i, dir);
+    acc.mutate();
+  };
+
+  const cols: Col[] =
+    view === "status"
+      ? statuses.map((s, i) => ({
+          id: s.id,
+          label: s.label,
+          color: tone[s.color],
+          menu: admin
+            ? [
+                { label: "Modifier la colonne", onClick: () => setColEdit(s) },
+                { label: "Déplacer à gauche", disabled: i === 0, onClick: () => reorderOpt(i, -1) },
+                { label: "Déplacer à droite", disabled: i === statuses.length - 1, onClick: () => reorderOpt(i, 1) },
+              ]
+            : undefined,
+        }))
+      : [
+          ...openSprints.map((s) => ({
+            id: s.id,
+            label: (
+              <span className="truncate">
+                {s.name}
+                {s.state === "CURRENT" && <span className="ml-1 text-[0.68rem] font-normal text-accent">en cours</span>}
+              </span>
+            ),
+            hint: s.startDate ? `${frDate(s.startDate, false)} au ${frDate(s.endDate, false)}` : "",
+            color: s.state === "CURRENT" ? "var(--accent)" : "var(--slate)",
+            menu: admin
+              ? [
+                  { label: "Modifier le sprint", onClick: () => setSprintEdit(s) },
+                  ...(s.state === "CURRENT" && sw.possible ? [{ label: "Basculer au sprint suivant", onClick: sw.ask }] : []),
+                ]
+              : undefined,
+          })),
+          { id: "none", label: "Non planifiées", color: "var(--muted)" },
+        ];
+  const colOf = (c: Card) => (view === "status" ? c.statusId ?? statuses[0]?.id : c.sprintId ?? "none");
+  const laneOf = (c: Card) => (c.streamId && lanesAll.some((l) => l.id === c.streamId) ? c.streamId : null);
+  const lanes: Lane[] = [
+    ...lanesAll.map((l) => ({ id: l.id as string | null, label: `${l.emoji} ${l.name}`, leader: l.leader, stream: l })),
+    ...(scoped.some((c) => laneOf(c) === null) ? [{ id: null, label: "Sans stream", leader: "" }] : []),
+  ];
+  const cellCards = (laneId: string | null, colId: string) => scoped.filter((c) => laneOf(c) === laneId && colOf(c) === colId).sort((a, b) => a.position - b.position);
+
+  const laneMenu = (l: Lane): MenuItem[] => {
+    if (!admin || !l.stream) return [];
+    const i = lanesAll.findIndex((x) => x.id === l.id);
+    const ids = [...acc.data.streams].sort((a, b) => a.order - b.order).map((s) => s.id);
+    const gi = ids.indexOf(l.stream.id);
+    return [
+      { label: "Modifier le stream", onClick: () => setStreamEdit(l.stream!) },
+      { label: "Monter", disabled: i <= 0, onClick: async () => (await swapOrder(acc.base, "stream", ids, gi, -1), acc.mutate()) },
+      { label: "Descendre", disabled: i >= lanesAll.length - 1, onClick: async () => (await swapOrder(acc.base, "stream", ids, gi, 1), acc.mutate()) },
+      "sep",
+      { label: "Retirer du kanban", onClick: async () => (await api(`${acc.base}/e/stream/${l.stream!.id}`, { method: "PATCH", json: { inKanban: false } }), acc.mutate()) },
+    ];
+  };
+
+  // ---------------------------------------------------------------- glisser-déposer
   const onDragStart = (e: DragStartEvent) => setDragging((cards ?? []).find((c) => c.id === e.active.id) ?? null);
   const onDragEnd = async (e: DragEndEvent) => {
     setDragging(null);
     const card = (cards ?? []).find((c) => c.id === e.active.id);
     const over = e.over?.id ? String(e.over.id) : null;
     if (!card || !over) return;
-    let streamId: string | null;
-    let statusId: string;
+    let laneId: string | null;
+    let colId: string;
     let beforeId: string | null = null;
     let afterId: string | null = null;
-    if (over.startsWith("card:")) {
+    if (over.startsWith("card|")) {
       const target = (cards ?? []).find((c) => c.id === over.slice(5));
       if (!target || target.id === card.id) return;
-      streamId = target.streamId;
-      statusId = target.statusId ?? statuses[0].id;
-      const list = cellCards(streamId, statusId).filter((c) => c.id !== card.id);
+      laneId = laneOf(target);
+      colId = colOf(target)!;
+      const list = cellCards(laneId, colId).filter((c) => c.id !== card.id);
       const idx = list.findIndex((c) => c.id === target.id);
-      afterId = target.id; // on insère avant la carte survolée
+      afterId = target.id;
       beforeId = idx > 0 ? list[idx - 1].id : null;
     } else {
-      const [, s, st] = over.split(":");
-      streamId = s === "none" ? null : s;
-      statusId = st;
-      const list = cellCards(streamId, statusId).filter((c) => c.id !== card.id);
+      const [, l, c] = over.split("|");
+      laneId = l === "none" ? null : l;
+      colId = c;
+      const list = cellCards(laneId, colId).filter((x) => x.id !== card.id);
       beforeId = list.length ? list[list.length - 1].id : null;
     }
-    if (card.streamId === streamId && card.statusId === statusId && !afterId && beforeId === null) return;
-    // mise à jour optimiste
+    if (laneOf(card) === laneId && colOf(card) === colId && !afterId && beforeId === null) return;
     const b = beforeId ? (cards ?? []).find((c) => c.id === beforeId) : null;
     const a = afterId ? (cards ?? []).find((c) => c.id === afterId) : null;
     const position = b && a ? (b.position + a.position) / 2 : b ? b.position + 1 : a ? a.position - 1 : card.position;
-    mutate((list) => (list ?? []).map((c) => (c.id === card.id ? { ...c, streamId, statusId, position } : c)), { revalidate: false });
+    // couloir « Sans stream » : une carte d'un stream masqué garde son stream
+    const streamId = laneId ?? (laneOf(card) === null ? card.streamId : null);
+    const patch = view === "status" ? { streamId, statusId: colId } : { streamId, sprintId: colId === "none" ? null : colId };
+    mutate((list) => (list ?? []).map((c) => (c.id === card.id ? { ...c, ...patch, position } : c)), { revalidate: false });
     try {
-      await api(`${acc.base}/cards/${card.id}/move`, { method: "POST", json: { streamId, statusId, beforeId, afterId } });
+      if (view === "status") await api(`${acc.base}/cards/${card.id}/move`, { method: "POST", json: { streamId, statusId: colId, beforeId, afterId } });
+      else await api(`${acc.base}/e/card/${card.id}`, { method: "PATCH", json: { ...patch, position } });
     } finally {
       mutate();
     }
   };
 
-  const cell = (streamId: string | null, statusId: string) => (
-    <Cell
-      key={`${streamId}:${statusId}`}
-      id={`cell:${streamId ?? "none"}:${statusId}`}
-      cards={cellCards(streamId, statusId)}
-      onOpen={onOpen}
-      canEdit={acc.canEdit}
-      onAdd={() => setCreating({ streamId, statusId })}
-    />
-  );
+  const sprint = view === "status" && sprintId && sprintId !== "none" ? acc.spr.get(sprintId) : null;
+  const sprintCards = (cards ?? []).filter((c) => sprint && c.sprintId === sprint.id);
+  const doneCount = sprintCards.filter((c) => acc.isDone(c.statusId)).length;
+  const donePct = sprintCards.length ? Math.round((doneCount / sprintCards.length) * 100) : 0;
+  const activeFilters = [owner, alertOnly, lateOnly, mineOnly, query.trim()].filter(Boolean).length;
+  const mobileColId = cols.some((c) => c.id === mobileCol[view]) ? mobileCol[view] : cols[0]?.id;
+
+  const addAt = (laneId: string | null, colId: string) => {
+    if (view === "status") setCreating({ streamId: laneId, statusId: colId, sprintId: sprint?.id ?? acc.currentSprint?.id ?? null });
+    else setCreating({ streamId: laneId, statusId: statuses[0]?.id ?? null, sprintId: colId === "none" ? null : colId });
+  };
 
   return (
     <section>
-      <SectionTitle
-        icon="🗂️"
-        actions={
-          acc.canEdit && (
-            <button className="btn btn-primary btn-sm" onClick={() => setCreating({ streamId: null, statusId: statuses[0]?.id ?? null })}>
-              <IconPlus /> Nouvelle carte
+      {/* en-tête : vue, filtres, nouvelle carte */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-line-soft p-0.5" role="tablist" aria-label="Vue du kanban">
+          {(
+            [
+              ["status", "Par statut"],
+              ["sprints", "Par sprint"],
+            ] as const
+          ).map(([v, l]) => (
+            <button key={v} role="tab" aria-selected={view === v} className={`rounded-md px-3 py-1 text-sm font-semibold transition ${view === v ? "bg-petrol text-white" : "text-ink-2 hover:bg-surface-2"}`} onClick={() => setView(v)}>
+              {l}
             </button>
-          )
-        }
-      >
-        Kanban {sprint ? `du ${sprint.name}` : "de tous les sprints"}
-      </SectionTitle>
-      {sprint && (
-        <p className="-mt-2 mb-2 text-xs text-muted">
-          Du {frDate(sprint.startDate)} au {frDate(sprint.endDate)}
-          {sprint.clientMilestone ? `. Échéance ${acc.data.account.clientName} : ${sprint.clientMilestone}` : ""}
-        </p>
-      )}
-      {sprintCards.length > 0 && (
-        <div className="mb-3 flex items-center gap-3 text-xs text-muted" title={`${doneCount} carte(s) terminée(s) sur ${sprintCards.length}`}>
-          <div className="h-1.5 w-40 overflow-hidden rounded-full bg-surface-3">
-            <div className="h-full rounded-full bg-teal" style={{ width: `${donePct}%` }} />
-          </div>
-          {doneCount}/{sprintCards.length} terminées ({donePct} %)
+          ))}
+        </div>
+        <div className="flex-1" />
+        <button className={`btn btn-sm ${activeFilters ? "btn-primary" : ""}`} onClick={() => setFiltersOpen(!filtersOpen)} aria-expanded={filtersOpen}>
+          Filtres{activeFilters ? ` (${activeFilters})` : ""}
+        </button>
+        {acc.canEdit && (
+          <button className="btn btn-primary btn-sm" onClick={() => setCreating({ streamId: null, statusId: statuses[0]?.id ?? null, sprintId: sprint?.id ?? acc.currentSprint?.id ?? null })}>
+            <IconPlus /> Nouvelle carte
+          </button>
+        )}
+      </div>
+
+      {view === "status" && (
+        <div className="mb-2 flex items-center gap-1 overflow-x-auto pb-1">
+          {openSprints.map((s) => (
+            <SprintTab key={s.id} active={sprintId === s.id} onClick={() => setSprintId(s.id)}>
+              {s.name}
+              {s.state === "CURRENT" && <span className="ml-1 text-[0.68rem] opacity-80">en cours</span>}
+            </SprintTab>
+          ))}
+          <SprintTab active={sprintId === "none"} onClick={() => setSprintId("none")}>
+            Sans sprint
+          </SprintTab>
+          <SprintTab active={!sprintId} onClick={() => setSprintId("")}>
+            Tous
+          </SprintTab>
+          {doneSprints.length > 0 && (
+            <select
+              className="input !w-auto shrink-0 !py-1 text-xs"
+              value={doneSprints.some((s) => s.id === sprintId) ? sprintId : ""}
+              onChange={(e) => e.target.value && setSprintId(e.target.value)}
+              aria-label="Sprints terminés"
+            >
+              <option value="">Terminés…</option>
+              {doneSprints.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {admin && (
+            <AddButton label="Créer un sprint" onClick={() => setSprintEdit("new")}>
+              Sprint
+            </AddButton>
+          )}
+          {admin && sprint && (
+            <Menu
+              label={`Options du ${sprint.name}`}
+              items={[
+                { label: "Modifier le sprint", onClick: () => setSprintEdit(sprint) },
+                ...(sprint.state === "CURRENT" && sw.possible ? [{ label: `Basculer au ${sw.next?.name}`, onClick: sw.ask }] : []),
+              ]}
+            />
+          )}
         </div>
       )}
 
-      <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
-        <select className="input lg:w-52" value={sprintId} onChange={(e) => setSprintId(e.target.value)} aria-label="Sprint">
-          <option value="">Tous les sprints</option>
-          {acc.data.sprints.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s.state === "CURRENT" ? " (en cours)" : s.state === "DONE" ? " (terminé)" : ""}
-            </option>
-          ))}
-        </select>
-        <OptionSelect className="lg:w-52" options={acc.data.contacts.map((c) => ({ id: c.id, label: c.name }))} value={owner} onChange={setOwner} placeholder="Tous les porteurs" />
-        <input className="input lg:w-64" placeholder="Rechercher une carte ou une réf." value={query} onChange={(e) => setQuery(e.target.value)} />
-        <div className="flex flex-wrap gap-1.5 sm:col-span-2 lg:col-span-1">
-          <FilterChip active={alertOnly} onClick={() => setAlertOnly(!alertOnly)}>
-            ⚠️ Vigilance ou alerte
-          </FilterChip>
-          <FilterChip active={lateOnly} onClick={() => setLateOnly(!lateOnly)}>
-            ⏰ En retard
-          </FilterChip>
-          {myContacts.size > 0 && (
-            <FilterChip active={mineOnly} onClick={() => setMineOnly(!mineOnly)}>
-              🙋 Mes cartes
-            </FilterChip>
+      {sprint && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+          <span>
+            Du {frDate(sprint.startDate)} au {frDate(sprint.endDate)}
+          </span>
+          {sprint.clientMilestone && (
+            <span className="max-w-full truncate" title={sprint.clientMilestone}>
+              Échéance {acc.data.account.clientShortName || acc.data.account.clientName} : {sprint.clientMilestone.split("\n")[0]}
+            </span>
+          )}
+          {sprintCards.length > 0 && (
+            <span className="flex items-center gap-2" title={`${doneCount} carte(s) terminée(s) sur ${sprintCards.length}`}>
+              <span className="h-1.5 w-32 overflow-hidden rounded-full bg-surface-3">
+                <span className="block h-full rounded-full bg-teal" style={{ width: `${donePct}%` }} />
+              </span>
+              {doneCount}/{sprintCards.length} terminées ({donePct} %)
+            </span>
           )}
         </div>
-      </div>
+      )}
+      {view === "sprints" && <p className="mb-3 text-xs text-muted">Sprint en cours et sprints suivants, par stream. Glissez une carte vers un autre sprint pour la replanifier.</p>}
+
+      {filtersOpen && (
+        <div className="mb-4 grid gap-2 rounded-xl border border-line-soft p-3 sm:grid-cols-2 lg:flex lg:flex-wrap lg:items-center">
+          <OptionSelect className="lg:w-52" options={acc.data.contacts.map((c) => ({ id: c.id, label: c.name }))} value={owner} onChange={setOwner} placeholder="Tous les porteurs" />
+          <input className="input lg:w-64" placeholder="Filtrer par titre ou réf." value={query} onChange={(e) => setQuery(e.target.value)} />
+          <div className="flex flex-wrap gap-1.5 sm:col-span-2 lg:col-span-1">
+            <FilterChip active={alertOnly} onClick={() => setAlertOnly(!alertOnly)}>
+              ⚠️ Vigilance ou alerte
+            </FilterChip>
+            <FilterChip active={lateOnly} onClick={() => setLateOnly(!lateOnly)}>
+              ⏰ En retard
+            </FilterChip>
+            {myContacts.size > 0 && (
+              <FilterChip active={mineOnly} onClick={() => setMineOnly(!mineOnly)}>
+                🙋 Mes cartes
+              </FilterChip>
+            )}
+            {view === "sprints" && (
+              <FilterChip active={showDone} onClick={() => setShowDone(!showDone)}>
+                ✅ Afficher les terminées
+              </FilterChip>
+            )}
+          </div>
+        </div>
+      )}
 
       {!cards ? (
         <Spinner />
+      ) : !statuses.length ? (
+        <Empty>Aucune colonne : {admin ? "créez la première avec le bouton ci-dessous." : "un administrateur doit définir les colonnes."}</Empty>
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
           {/* sélecteur de colonne (mobile) */}
           <div className="mb-3 flex gap-1 overflow-x-auto md:hidden">
-            {statuses.map((s) => (
-              <button key={s.id} className={`btn btn-sm shrink-0 ${mobileStatus === s.id ? "btn-primary" : ""}`} onClick={() => setMobileStatus(s.id)}>
-                {s.label} <span className="opacity-70">{visible.filter((c) => (c.statusId ?? statuses[0].id) === s.id).length}</span>
+            {cols.map((c) => (
+              <button key={c.id} className={`btn btn-sm shrink-0 ${mobileColId === c.id ? "btn-primary" : ""}`} onClick={() => setMobileCol({ ...mobileCol, [view]: c.id })}>
+                {c.label} <span className="opacity-70">{scoped.filter((x) => colOf(x) === c.id).length}</span>
               </button>
             ))}
+            {admin && <AddButton label={view === "status" ? "Ajouter une colonne" : "Créer un sprint"} onClick={() => (view === "status" ? setColEdit("new") : setSprintEdit("new"))} />}
           </div>
 
           <div className="overflow-x-auto">
             <div className="md:min-w-[900px]">
               {/* en-têtes de colonnes */}
-              <div className="mb-1 hidden gap-3 py-2 md:grid" style={{ gridTemplateColumns: `repeat(${statuses.length}, minmax(0, 1fr))` }}>
-                {statuses.map((s) => (
-                  <div key={s.id} className="flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm font-semibold text-ink">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: tone[s.color] }} />
-                    {s.label}
-                    <span className="ml-auto text-xs text-muted">{visible.filter((c) => (c.statusId ?? statuses[0].id) === s.id).length}</span>
+              <div className="mb-1 hidden items-stretch gap-3 py-2 md:flex">
+                <div className="grid flex-1 gap-3" style={{ gridTemplateColumns: `repeat(${cols.length}, minmax(0, 1fr))` }}>
+                  {cols.map((c) => (
+                    <div key={c.id} className="group flex min-w-0 items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-sm font-semibold text-ink" title={c.hint}>
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.color }} />
+                      <span className="min-w-0 truncate">{c.label}</span>
+                      <span className="ml-auto text-xs text-muted">{scoped.filter((x) => colOf(x) === c.id).length}</span>
+                      {c.menu && <Menu items={c.menu} label="Options de la colonne" className="opacity-60 group-hover:opacity-100" />}
+                    </div>
+                  ))}
+                </div>
+                {admin && (
+                  <div className="flex w-6 items-center">
+                    <AddButton label={view === "status" ? "Ajouter une colonne" : "Créer un sprint"} onClick={() => (view === "status" ? setColEdit("new") : setSprintEdit("new"))} />
                   </div>
-                ))}
+                )}
               </div>
 
-              {[...lanes.map((l) => ({ id: l.id as string | null, label: `${l.emoji} ${l.name}`, leader: l.leader })), ...(orphans.length ? [{ id: null, label: "Sans stream", leader: "" }] : [])].map((lane) => {
-                const count = visible.filter((c) => (lane.id ? c.streamId === lane.id : !c.streamId || !lanes.some((l) => l.id === c.streamId))).length;
+              {lanes.map((lane) => {
                 const key = lane.id ?? "none";
+                const count = scoped.filter((c) => laneOf(c) === lane.id).length;
                 const isCollapsed = collapsed[key] ?? false;
+                const menu = laneMenu(lane);
                 return (
                   <div key={key} className="mb-3">
-                    <button className="mb-2 flex w-full items-center gap-2 text-left" onClick={() => setCollapsed({ ...collapsed, [key]: !isCollapsed })}>
-                      <IconChevronDown className={`text-muted transition ${isCollapsed ? "-rotate-90" : ""}`} />
-                      <span className="font-display text-base font-bold text-heading">{lane.label}</span>
-                      <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{count}</span>
-                      {lane.leader && <span className="hidden truncate text-xs text-muted sm:inline">{lane.leader}</span>}
-                    </button>
+                    <div className="group mb-2 flex items-center gap-2">
+                      <button className="flex min-w-0 flex-1 items-center gap-2 text-left" onClick={() => setCollapsed({ ...collapsed, [key]: !isCollapsed })} aria-expanded={!isCollapsed}>
+                        <IconChevronDown className={`shrink-0 text-muted transition ${isCollapsed ? "-rotate-90" : ""}`} />
+                        <span className="truncate font-display text-base font-bold text-heading">{lane.label}</span>
+                        <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{count}</span>
+                        {lane.leader && <span className="hidden truncate text-xs text-muted sm:inline">{lane.leader}</span>}
+                      </button>
+                      {menu.length > 0 && <Menu items={menu} label={`Options du stream ${lane.stream?.name}`} className="opacity-60 group-hover:opacity-100" />}
+                    </div>
                     {!isCollapsed &&
                       (isMobile ? (
-                        <div>{cell(lane.id, mobileStatus)}</div>
+                        <Cell id={`cell|${key}|${mobileColId}`} cards={cellCards(lane.id, mobileColId)} onOpen={onOpen} canEdit={acc.canEdit} showStatus={view === "sprints"} onAdd={() => addAt(lane.id, mobileColId)} />
                       ) : (
-                        <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${statuses.length}, minmax(0, 1fr))` }}>
-                          {statuses.map((s) => cell(lane.id, s.id))}
+                        <div className={`grid gap-3 ${admin ? "md:mr-9" : ""}`} style={{ gridTemplateColumns: `repeat(${cols.length}, minmax(0, 1fr))` }}>
+                          {cols.map((c) => (
+                            <Cell key={c.id} id={`cell|${key}|${c.id}`} cards={cellCards(lane.id, c.id)} onOpen={onOpen} canEdit={acc.canEdit} showStatus={view === "sprints"} onAdd={() => addAt(lane.id, c.id)} />
+                          ))}
                         </div>
                       ))}
                   </div>
                 );
               })}
+              {admin && (
+                <button className="mt-1 rounded-lg px-2 py-1 text-sm font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={() => setStreamEdit("new")}>
+                  + Ajouter un stream
+                </button>
+              )}
             </div>
           </div>
-          <DragOverlay>{dragging ? <CardTile card={dragging} overlay /> : null}</DragOverlay>
+          <DragOverlay>{dragging ? <CardTile card={dragging} overlay showStatus={view === "sprints"} /> : null}</DragOverlay>
         </DndContext>
       )}
+      {admin && !statuses.length && (
+        <button className="btn btn-sm mt-3" onClick={() => setColEdit("new")}>
+          <IconPlus /> Ajouter une colonne
+        </button>
+      )}
 
-      <NewCardModal init={creating} sprintId={sprintId || acc.currentSprint?.id || null} onClose={() => setCreating(null)} onCreated={(c) => (mutate(), onOpen(c))} />
+      <NewCardModal init={creating} onClose={() => setCreating(null)} onCreated={(c) => (mutate(), onOpen(c))} />
+      <SprintModal item={sprintEdit} onClose={() => setSprintEdit(null)} onSaved={(s) => sprintEdit === "new" && view === "status" && setSprintId(s.id)} />
+      <StreamModal item={streamEdit} onClose={() => setStreamEdit(null)} />
+      <OptionModal item={colEdit} kind="CARD_STATUS" onClose={() => setColEdit(null)} />
+      {sw.node}
     </section>
   );
 }
 
-function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+function SprintTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button className={`shrink-0 rounded-full border px-3 py-1 text-sm font-semibold transition ${active ? "border-accent bg-accent/15 text-ink" : "border-line-soft text-ink-2 hover:border-accent/60"}`} onClick={onClick} aria-pressed={active}>
+      {children}
+    </button>
+  );
+}
+
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
   return (
     <button className={`btn btn-sm ${active ? "btn-primary" : ""}`} onClick={onClick} aria-pressed={active}>
       {children}
@@ -406,15 +459,12 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
   );
 }
 
-function Cell({ id, cards, onOpen, canEdit, onAdd }: { id: string; cards: Card[]; onOpen: (c: Card) => void; canEdit: boolean; onAdd: () => void }) {
+function Cell({ id, cards, onOpen, canEdit, onAdd, showStatus }: { id: string; cards: Card[]; onOpen: (c: Card) => void; canEdit: boolean; onAdd: () => void; showStatus: boolean }) {
   const { setNodeRef, isOver } = useDroppable({ id, disabled: !canEdit });
   return (
-    <div
-      ref={setNodeRef}
-      className={`group flex min-h-[64px] flex-col gap-2 rounded-xl border p-2 transition ${isOver ? "border-accent bg-accent/10" : "border-line-soft bg-surface/40"}`}
-    >
+    <div ref={setNodeRef} className={`group flex min-h-[64px] flex-col gap-2 rounded-xl border p-2 transition ${isOver ? "border-accent bg-accent/10" : "border-line-soft bg-surface/40"}`}>
       {cards.map((c) => (
-        <DraggableCard key={c.id} card={c} onOpen={onOpen} canEdit={canEdit} />
+        <DraggableCard key={c.id} card={c} onOpen={onOpen} canEdit={canEdit} showStatus={showStatus} />
       ))}
       {canEdit && (
         <button className="rounded-lg py-1 text-xs text-muted opacity-60 transition hover:bg-surface-2 hover:text-ink group-hover:opacity-100" onClick={onAdd}>
@@ -425,9 +475,9 @@ function Cell({ id, cards, onOpen, canEdit, onAdd }: { id: string; cards: Card[]
   );
 }
 
-function DraggableCard({ card, onOpen, canEdit }: { card: Card; onOpen: (c: Card) => void; canEdit: boolean }) {
+function DraggableCard({ card, onOpen, canEdit, showStatus }: { card: Card; onOpen: (c: Card) => void; canEdit: boolean; showStatus: boolean }) {
   const drag = useDraggable({ id: card.id, disabled: !canEdit });
-  const drop = useDroppable({ id: `card:${card.id}`, disabled: !canEdit });
+  const drop = useDroppable({ id: `card|${card.id}`, disabled: !canEdit });
   return (
     <div
       ref={(n) => {
@@ -439,18 +489,20 @@ function DraggableCard({ card, onOpen, canEdit }: { card: Card; onOpen: (c: Card
       className={`${drag.isDragging ? "opacity-30" : ""} ${drop.isOver && !drag.isDragging ? "pt-3" : ""} transition-[padding]`}
       onClick={() => onOpen(card)}
     >
-      <CardTile card={card} />
+      <CardTile card={card} showStatus={showStatus} />
     </div>
   );
 }
 
-function CardTile({ card, overlay = false }: { card: Card; overlay?: boolean }) {
+function CardTile({ card, overlay = false, showStatus = false }: { card: Card; overlay?: boolean; showStatus?: boolean }) {
   const acc = useAcc();
   const lvl = card.alertLevelId ? acc.opt.get(card.alertLevelId) : null;
   const owner = card.ownerId ? acc.ctc.get(card.ownerId)?.name : "";
+  const st = showStatus && card.statusId ? acc.opt.get(card.statusId) : null;
+  const done = acc.isDone(card.statusId);
   return (
     <div
-      className={`cursor-pointer rounded-lg border bg-surface p-2.5 text-left shadow-sm transition hover:border-accent ${overlay ? "rotate-2 shadow-2xl" : ""}`}
+      className={`cursor-pointer rounded-lg border bg-surface p-2.5 text-left shadow-sm transition hover:border-accent ${overlay ? "rotate-2 shadow-2xl" : ""} ${done && showStatus ? "opacity-60" : ""}`}
       style={{ borderColor: lvl ? `color-mix(in srgb, ${tone[lvl.color]} 55%, transparent)` : "var(--border-soft)", borderLeftWidth: lvl ? 3 : 1, borderLeftColor: lvl ? tone[lvl.color] : undefined }}
     >
       <div className="flex items-start gap-1.5">
@@ -461,8 +513,9 @@ function CardTile({ card, overlay = false }: { card: Card; overlay?: boolean }) 
         {lvl && <span title={lvl.label}>{lvl.emoji || "●"}</span>}
       </div>
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.72rem] text-muted">
+        {st && <Pill option={st} small />}
         {owner && <span className="truncate">{owner}</span>}
-        {card.dueDate && <span className={isOverdue(card.dueDate) && !acc.isDone(card.statusId) ? "font-semibold text-red" : ""}>{frDate(card.dueDate, false)}</span>}
+        {card.dueDate && <span className={isOverdue(card.dueDate) && !done ? "font-semibold text-red" : ""}>{frDate(card.dueDate, false)}</span>}
         {!!card.commentCount && (
           <span className="inline-flex items-center gap-0.5">
             <IconComment width={12} height={12} />
@@ -480,29 +533,29 @@ function CardTile({ card, overlay = false }: { card: Card; overlay?: boolean }) 
   );
 }
 
-function NewCardModal({ init, sprintId, onClose, onCreated }: { init: { streamId: string | null; statusId: string | null } | null; sprintId: string | null; onClose: () => void; onCreated: (c: Card) => void }) {
+function NewCardModal({ init, onClose, onCreated }: { init: { streamId: string | null; statusId: string | null; sprintId: string | null } | null; onClose: () => void; onCreated: (c: Card) => void }) {
   const acc = useAcc();
   const [title, setTitle] = useState("");
   const [streamId, setStreamId] = useState<string | null>(null);
   const [statusId, setStatusId] = useState<string | null>(null);
   const [sprint, setSprint] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const key = init ? `${init.streamId}-${init.statusId}` : "";
+  const key = init ? `${init.streamId}-${init.statusId}-${init.sprintId}` : "";
   const [lastKey, setLastKey] = useState("");
   if (init && key !== lastKey) {
     setLastKey(key);
     setStreamId(init.streamId);
     setStatusId(init.statusId);
-    setSprint(sprintId);
+    setSprint(init.sprintId);
     setTitle("");
   }
+  const close = () => (onClose(), setLastKey(""));
   const create = async () => {
     if (!title.trim()) return;
     setBusy(true);
     try {
       const c = await api<Card>(`${acc.base}/e/card`, { method: "POST", json: { title: title.trim(), streamId, statusId, sprintId: sprint } });
-      onClose();
-      setLastKey("");
+      close();
       onCreated(c);
     } finally {
       setBusy(false);
@@ -511,11 +564,11 @@ function NewCardModal({ init, sprintId, onClose, onCreated }: { init: { streamId
   return (
     <Modal
       open={!!init}
-      onClose={() => (onClose(), setLastKey(""))}
+      onClose={close}
       title="Nouvelle carte"
       footer={
         <>
-          <button className="btn" onClick={() => (onClose(), setLastKey(""))}>
+          <button className="btn" onClick={close}>
             Annuler
           </button>
           <button className="btn btn-primary" disabled={busy || !title.trim()} onClick={create}>
@@ -539,13 +592,13 @@ function NewCardModal({ init, sprintId, onClose, onCreated }: { init: { streamId
             <OptionSelect options={acc.data.sprints.map((s) => ({ id: s.id, label: s.name }))} value={sprint} onChange={setSprint} />
           </Field>
         </div>
-        <p className="text-xs text-muted">Les autres champs se renseignent ensuite dans la carte.</p>
+        <p className="text-xs text-muted">Les autres champs (porteur, dates, alertes…) se renseignent ensuite dans la carte.</p>
       </div>
     </Modal>
   );
 }
 
-/** Une seule version du kanban est rendue (desktop ou mobile) pour éviter des zones de dépôt en double. */
+/** Une seule version du kanban est rendue (bureau ou mobile) pour éviter des zones de dépôt en double. */
 function useIsMobile() {
   const [m, setM] = useState(false);
   useEffect(() => {

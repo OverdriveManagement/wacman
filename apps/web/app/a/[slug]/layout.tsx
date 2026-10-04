@@ -11,6 +11,7 @@ import { Spinner } from "@/components/ui";
 import { ExportDialog } from "@/components/ExportDialog";
 import { Assistant } from "@/components/Assistant";
 import { SearchPalette } from "@/components/SearchPalette";
+import { MeetingTypeModal } from "@/components/MeetingTypeModal";
 import {
   IconBuilding,
   IconDownload,
@@ -38,6 +39,7 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [newType, setNewType] = useState(false);
 
   // Ctrl+K ou ⌘K : recherche globale ; « / » hors champ de saisie aussi
   useEffect(() => {
@@ -93,7 +95,14 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
     <nav className="flex flex-col gap-5 text-sm">
       {program.length > 0 && (
         <div>
-          <div className="mb-1.5 px-3 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted">Program Management</div>
+          <div className="mb-1.5 flex items-center justify-between px-3 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted">
+            Program Management
+            {acc.isAdmin && (
+              <button className="rounded px-1 text-base leading-none text-muted hover:text-accent" onClick={() => setNewType(true)} title="Nouveau type de séance" aria-label="Nouveau type de séance">
+                +
+              </button>
+            )}
+          </div>
           {program.map((i) => (
             <NavLink key={i.href} item={i} active={active(i)} onClick={() => setDrawer(false)} />
           ))}
@@ -192,6 +201,7 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
       <Assistant open={assistantOpen} onClose={() => setAssistantOpen(false)} />
       <SearchPalette open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <MeetingTypeModal item={newType ? "new" : null} onClose={() => setNewType(false)} />
     </AccountContext.Provider>
   );
 }

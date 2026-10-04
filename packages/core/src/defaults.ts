@@ -99,7 +99,7 @@ export const defaultMeetingTypes = [
     emoji: "📰",
     frequency: "Hebdomadaire",
     description: "Revue des livrables du sprint, faits marquants de la semaine et alertes.",
-    blocks: ["HIGHLIGHTS"] as const,
+    blocks: ["HIGHLIGHTS", "ALERT_CARDS", "PLANNING"] as const,
     settings: {},
     guide:
       "**Nouvelle séance** : bouton « Nouvelle séance » (vide) ou « À partir de la précédente » (faits marquants recopiés à la nouvelle date, on ne modifie ensuite que ce qui a changé).",

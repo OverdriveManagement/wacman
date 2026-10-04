@@ -4,7 +4,7 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt.
 
-Version courante : **V1.1** (4 octobre 2026).
+Version courante : **V1.2** (4 octobre 2026).
 
 ---
 
@@ -12,6 +12,8 @@ Version courante : **V1.1** (4 octobre 2026).
 
 - **Multi-comptes** : chaque client est un compte (La Poste est le premier). Toute donnée appartient à un compte.
 - **Tout est configurable par compte** : streams, sprints, colonnes du kanban, niveaux d'alerte, listes de valeurs, types de séance, comitologie, textes et libellés, sections affichées.
+- **Paramétrage en place** : les réglages courants se font depuis les écrans, sans passer par les paramètres du compte (« + » pour créer, « ⋯ » sur un en-tête pour modifier, « Nouveau… » dans une liste déroulante), réservés aux administrateurs pour la configuration et aux éditeurs pour l'annuaire. Les Paramètres du compte restent la vue complète.
+- **Mise en forme des textes** : barre d'outils dans chaque zone de texte multi-ligne (voir 4.8).
 - **Trois sections par compte** : Program Management (V1), Finance management et Provisioning management (pages « À venir » en V1, activables ou non par compte).
 - **Interface en français**, mobile d'abord, thème sombre aux couleurs Wifirst (thème clair disponible).
 - **Traçabilité** : chaque création, modification, suppression ou déplacement est inscrit au journal, avec l'auteur et l'indication « via l'assistant » le cas échéant.
@@ -58,7 +60,7 @@ Un utilisateur peut avoir des rôles différents selon les comptes. Les accès s
 Reprise à l'identique, en fonctionnalités, de l'espace Notion « La Poste - PSTNG ».
 
 ### 4.0 Tableau de bord
-Premier lien de la section. En un écran :
+Premier lien de la section ; le bandeau d'introduction du compte y figure en tête. En un écran :
 - quatre indicateurs : sprint en cours (jours restants et temps écoulé), livrables terminés du sprint, cartes en vigilance ou en alerte (par niveau), échéances dépassées (et nombre à échéance sous 15 jours) ;
 - avancement du sprint : répartition des cartes par statut (barre segmentée) et, par stream, cartes terminées sur le total et nombre d'alertes ;
 - listes cliquables : échéances dépassées, à échéance sous 15 jours, mes cartes en cours (cartes dont je suis porteur, si mon utilisateur est rattaché à ma fiche de l'annuaire) ;
@@ -68,16 +70,18 @@ Premier lien de la section. En un écran :
 Les données se rafraîchissent chaque minute.
 
 ### 4.1 Kanban (page d'accueil du compte)
-De haut en bas :
-1. **Bandeau d'introduction** (texte configurable).
-2. **Derniers faits marquants** : ceux de la dernière séance du premier type de séance à faits marquants (Program weekly pour La Poste), en galerie : picto et titre, type, stream, détail.
-3. **Cartes en vigilance ou en alerte** : toutes les cartes non terminées portant un niveau d'alerte, de la plus grave à la moins grave, avec niveau, stream, porteur, échéance (en rouge si dépassée) et alertes / arbitrages. Un clic ouvre la carte.
-4. **Kanban** : colonnes = statuts (À faire, En cours, Standby, Terminé pour La Poste), couloirs = streams marqués « Kanban ». Filtres : sprint (en cours par défaut), porteur, recherche par titre ou référence, et boutons « Vigilance ou alerte », « En retard » et « Mes cartes ». Sous le titre, barre d'avancement du sprint (cartes terminées sur le total). Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » dans chaque case.
-5. **Mode d'emploi** (texte configurable, replié).
+Le kanban seul, sans bandeau ni faits marquants (ils sont dans le Program weekly), avec deux vues :
+- **Par statut** : colonnes = statuts (À faire, En cours, Standby, Terminé pour La Poste), couloirs = streams marqués « Kanban ». Onglets de sprint en tête : sprint en cours (par défaut) et sprints suivants, « Sans sprint », « Tous », sprints terminés dans une liste. Ligne d'information du sprint : dates, échéance client, barre d'avancement (cartes terminées sur le total).
+- **Par sprint** : colonnes = sprint en cours, sprints suivants et « Non planifiées », couloirs = streams ; chaque carte affiche son statut. Glisser une carte vers une autre colonne la replanifie dans ce sprint. Les cartes terminées sont masquées par défaut.
+- Bouton **Filtres** (replié par défaut) : porteur, titre ou référence, « Vigilance ou alerte », « En retard », « Mes cartes », « Afficher les terminées » (vue par sprint).
+- Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » dans chaque case.
+- **Paramétrage en place** (administrateurs) : « + Sprint » à côté des onglets (le nouveau sprint s'enchaîne au dernier, même durée) et « ⋯ » du sprint choisi (modifier, basculer au sprint suivant) ; « ⋯ » d'une colonne (modifier libellé, picto, couleur, colonne « terminé », déplacer à gauche ou à droite, supprimer) et « + » en bout d'en-tête pour ajouter une colonne (ou un sprint en vue par sprint) ; « ⋯ » d'un couloir (modifier le stream, monter, descendre, retirer du kanban) et « + Ajouter un stream ».
+- **Mode d'emploi** (texte configurable, replié).
 
 ### 4.2 Carte (livrable)
 - En-tête : Réf. (numérotation automatique par compte), titre, statut, stream, porteur, sprint.
-- Corps : description, point d'avancement, prochaines étapes, vigilance / alerte, alertes / arbitrages (encadré coloré selon le niveau), échéance.
+- Corps : description, point d'avancement, prochaines étapes, vigilance / alerte, début prévu, échéance (le début ne peut pas suivre l'échéance), alertes / arbitrages (encadré coloré selon le niveau). Début prévu et échéance alimentent le planning ; à défaut, le planning reprend les dates du sprint.
+- Porteur et stream : « Nouveau contact… » ou « Nouveau stream… » dans la liste pour les créer sans quitter la carte.
 - Détails : avancement (%), picto, date de mise à jour, duplication (copie de tous les champs sauf commentaires, placée juste après l'originale), archivage, suppression.
 - Commentaires et historique des modifications (qui a changé quoi, avant et après).
 - Règle de contenu (reprise du Notion) : alertes / arbitrages n'est renseigné que pour une carte en vigilance ou en alerte ; sinon les actions vont dans prochaines étapes.
@@ -91,23 +95,34 @@ Chaque **type de séance** (configurable) assemble un ou plusieurs blocs :
 
 Pour La Poste : Program weekly (faits marquants), COPROJ LP (statut des streams), Strategic Committee (sujets).
 
-La page d'un type de séance liste les séances de la plus récente à la plus ancienne (la plus récente dépliée), avec :
-- **Nouvelle séance** : séance vide à la date choisie ; pour un bloc statut des streams, les streams marqués « Ligne de séance » sont créés d'office.
-- **À partir de la précédente** : recopie de la séance antérieure la plus proche :
-  - faits marquants recopiés à la nouvelle date ;
-  - statuts, avancement et alertes recopiés pour chaque stream ;
-  - sujets recopiés sans les lignes « Décision : … » (ni ce qui les suit).
-- Modification de la date, suppression d'une séance, édition en place des cellules, commentaires et historique sur chaque élément.
-- Export Excel de toutes les séances du type.
-- Sur la séance dépliée : **Copier le CR** (compte rendu en texte, prêt à coller dans un e-mail : faits marquants, statuts des streams, sujets et arbitrages) et **PDF** (vue d'impression au gabarit Wifirst, à imprimer ou enregistrer en PDF depuis le navigateur).
+Deux blocs supplémentaires, **vues à date du kanban** (non enregistrées dans la séance, toujours à jour) : **cartes en vigilance ou en alerte** et **planning des cartes par stream**. Le Program weekly les reçoit par défaut (comptes existants compris) ; tout type de séance peut les activer.
+
+La page d'un type de séance montre **une séance à la fois**, la plus récente par défaut :
+- sélecteur de séance avec flèches précédente et suivante, pastille « à venir » pour une séance future ;
+- **Nouvelle séance à partir de la précédente** (bouton principal) : recopie de la séance antérieure la plus proche (faits marquants recopiés à la nouvelle date ; statuts, avancement et alertes recopiés pour chaque stream ; sujets recopiés sans les lignes « Décision : … » ni ce qui les suit) ;
+- **Séance vide** : séance à la date choisie ; pour un bloc statut des streams, les streams marqués « Ligne de séance » sont créés d'office ;
+- sur la séance : Copier le CR, PDF, date modifiable, « ⋯ » (changer la date, supprimer) ; Excel de toutes les séances du type ;
+- « ⋯ » du type de séance (administrateurs) : modifier ce type (nom, picto, fréquence, blocs, libellés, cadrage, mode d'emploi), créer un nouveau type. Un « + » à côté de « Program Management » dans le menu crée aussi un type de séance.
+
+**Program weekly**, de haut en bas :
+1. **Faits marquants** de la séance, modifiables directement sur l'écran : titre et détail au clic (avec barre de mise en forme), type et stream par listes courtes, ordre par flèches ; ajout rapide (titre puis Entrée) et formulaire complet (picto, commentaires, historique).
+2. **Cartes en vigilance ou en alerte** à date, de la plus grave à la moins grave ; un clic ouvre la carte dans la page.
+3. **Planning des livrables par stream** (Gantt) :
+   - une ligne par carte, regroupée par stream (couloirs repliables avec nombre de cartes, d'alertes et de retards) ; seule la colonne de gauche porte le titre de la carte, un clic ouvre la carte ;
+   - une barre du début prévu à l'échéance ; couleur selon le niveau (vigilance, alerte), bleu sans alerte, vert pâle si terminée ; trait pointillé quand une date manque et que celle du sprint la remplace ; losange pour une échéance seule ; marque rouge en bout de barre si l'échéance est dépassée ;
+   - repères : mois, semaines, bandes des sprints (avec l'échéance client en info-bulle), ligne « Aujourd'hui » ; info-bulle complète (dates, statut, niveau, porteur) ;
+   - filtres : stream, sprint en cours et à venir ou tous, vigilance ou alerte, terminées ; zoom Semaines ou Mois ; bouton Aujourd'hui ;
+   - éditeurs : glisser une barre pour la décaler, ses bords pour changer le début ou l'échéance (au jour près, avec aperçu des dates) ; un simple clic ouvre la carte.
+
+Statut des streams : « + » parmi les statuts (administrateurs) pour créer un nouveau statut de stream.
 
 ### 4.4 Risques & arbitrages
-Liste filtrable (type, stream, éléments clos masqués par défaut), triée par criticité puis échéance. Fiche : sujet, type, criticité, statut, stream, porteur, échéance, instance, description, décision / mitigation, cartes liées, commentaires, historique.
+Liste filtrable (type, stream, éléments clos masqués par défaut), triée par criticité puis échéance. Fiche : sujet, type, criticité, statut, stream, porteur, échéance, instance, description, décision / mitigation, cartes liées, commentaires, historique. Type, criticité, statut, stream et porteur se créent depuis la fiche (« Nouveau… » dans la liste).
 
 ### 4.5 Gouvernance
 - **Comitologie** : introduction, tableau interne (en-tête bleu pétrole) et tableau conjoint avec le client (en-tête ocre) : instance, finalité, participants, fréquence, support ou piloté par. Édition en place, ajout, ordre, suppression (administrateurs).
-- **Streams et interlocuteurs** : streams marqués « Annuaire », leader et prescripteur client.
-- **Sprints** : méthodologie, tableau des sprints (dates, état, échéance client, objectif) et bouton **Basculer au sprint suivant** : le sprint en cours passe à Terminé, le suivant à En cours, et les cartes non terminées sont reportées.
+- **Streams et interlocuteurs** : streams marqués « Annuaire », leader et prescripteur client ; crayon pour modifier un stream, « Ajouter un stream » (administrateurs).
+- **Sprints** : méthodologie, tableau des sprints (dates, état, échéance client, objectif), crayon pour modifier ou supprimer un sprint, **Nouveau sprint** et **Basculer au sprint suivant** : le sprint en cours passe à Terminé, le suivant à En cours, et les cartes non terminées sont reportées.
 
 ### 4.6 Journal
 Toutes les modifications du compte, filtrables par type d'élément.
@@ -115,9 +130,17 @@ Toutes les modifications du compte, filtrables par type d'élément.
 ### 4.7 Recherche globale
 Bouton « Rechercher » de l'en-tête, raccourci Ctrl+K (⌘K sur Mac) ou touche « / ». Recherche insensible à la casse et aux accents dans les cartes (titre et textes, ou numéro de référence : « 12 » ou « #12 »), risques, sujets et faits marquants des séances, streams et annuaire. Navigation au clavier ; un résultat ouvre directement la carte, le risque, la séance concernée ou la page Gouvernance.
 
-### 4.8 Exports
-- **PowerPoint** au gabarit Wifirst (16:9, titres Hind Madurai gras bleu pétrole, corps Inter, palette du deck Program weekly) : couverture ; faits marquants de la séance choisie ; cartes en vigilance ou en alerte ; livrables du sprint, une slide par stream (pastille d'alerte, statut, porteur, échéance, point d'avancement ou alerte) ; statut des streams ; sujets du comité. Les tableaux longs se répartissent sur plusieurs slides sans couper une ligne. Choix du sprint, des sections et de la séance de chaque type.
-- **Excel** : cartes (d'un sprint ou de tous), séances d'un type (un onglet par bloc).
+### 4.8 Mise en forme des textes
+Chaque zone de texte multi-ligne (cellule éditable au clic, fiche d'une carte, fait marquant, sujet, risque, commentaire, textes du compte et des types de séance) affiche une barre d'outils pendant la saisie, sur le modèle des éditeurs du marché :
+- **Gras** (Ctrl+B), *italique* (Ctrl+I), souligné (Ctrl+U), barré (Ctrl+Maj+X), surligné, code ou référence ;
+- liste à puces (Ctrl+Maj+8), liste numérotée (Ctrl+Maj+7), cases à cocher, intertitre ;
+- lien (Ctrl+K : la sélection devient le texte du lien, l'adresse reste à compléter) ;
+- effacer la mise en forme de la sélection ou de la ligne.
+Un bouton appliqué deux fois retire la mise en forme. Entrée prolonge une liste (puce, numéro, case) et une ligne de liste vide la termine. En lecture, les cases à cocher se cochent d'un clic. Le texte reste stocké en balisage léger (lisible tel quel) et repris dans le compte rendu copié, le PDF, Excel et PowerPoint. Ctrl+Entrée ou un clic à l'extérieur enregistre, Échap annule.
+
+### 4.9 Exports
+- **PowerPoint** au gabarit Wifirst (16:9, titres Hind Madurai gras bleu pétrole, corps Inter, palette du deck Program weekly) : couverture ; faits marquants de la séance choisie ; cartes en vigilance ou en alerte ; livrables du sprint, une slide par stream (pastille d'alerte, statut, porteur, échéance, point d'avancement ou alerte) ; **planning des livrables** (Gantt par stream, mêmes couleurs que l'écran, ligne Aujourd'hui) ; statut des streams ; sujets du comité. La mise en forme des textes (gras, italique, souligné, barré, surligné, puces, cases) est reprise. Les tableaux longs se répartissent sur plusieurs slides sans couper une ligne. Choix du sprint, des sections et de la séance de chaque type.
+- **Excel** : cartes (d'un sprint ou de tous, avec début prévu et échéance), séances d'un type (un onglet par bloc).
 - **Sauvegarde JSON** complète du compte (super-administrateur), réimportable.
 
 ## 5. Sections Finance management et Provisioning management
@@ -180,3 +203,5 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 | 03/10/2026 | Mise en service et mise en ligne ; dépôt GitHub relié | Dépôt privé OverdriveManagement/wacman ; API déployée sur Railway (Amsterdam) depuis GitHub ; front déployé sur Vercel (Paris) depuis GitHub ; chaque push sur main redéploie les deux |
 | 04/10/2026 | Un prompt sur l'assistant IA fait planter le site | Flux de l'assistant fiabilisé (fin de connexion détectée sur la réponse, maintien de connexion toutes les 15 s, lecture tolérante des événements) ; zones d'erreur isolées (assistant, pages d'un compte, application) avec bouton Réessayer ; contrôle des références renforcé (identifiant valide et valeur de la bonne liste) |
 | 04/10/2026 | Trouver et intégrer de manière autonome d'autres améliorations, sans validation intermédiaire | V1.1 : tableau de bord (4.0), recherche globale Ctrl+K (4.7), filtres « En retard » et « Mes cartes » et barre d'avancement sur le kanban, duplication de carte, compte rendu de séance à copier ou en PDF, mot de passe oublié par code e-mail (2.1), jetons d'accès personnels (2.2), connecteur Claude MCP et API REST par jeton (7.1), application installable, correctifs (fenêtres décalées sous l'en-tête, lien direct qui rouvrait la carte d'origine après duplication) |
+| 04/10/2026 | Distinguer Kanban et Program weekly : Kanban du sprint en cours et des sprints suivants par stream ; Program weekly avec faits marquants éditables, cartes en vigilance ou en alerte, planning Gantt par stream (barres colorées selon le niveau, titre cliquable), complété par mes idées ; déplacer le paramétrage dans les écrans sans les alourdir | V1.2 : kanban en deux vues, par statut (onglets de sprint) et par sprint (replanification par glisser) (4.1) ; page de séance à une séance à la fois, faits marquants en édition directe et ajout rapide, blocs à date « cartes en vigilance ou en alerte » et « planning » (4.3) ; date de début prévu des cartes ; planning glissable, jalons, retards, sprints, zoom ; slide Planning dans l'export PowerPoint ; paramétrage en place : sprints, colonnes, streams, types de séance, valeurs de listes et contacts créés depuis les écrans (1, 4.1, 4.3 à 4.5) |
+| 04/10/2026 | Ajouter des options de mise en forme du texte (gras, italique, puces et boutons standard du marché) à l'édition d'une cellule et dans une carte ouverte | Barre de mise en forme et raccourcis clavier dans toutes les zones de texte multi-ligne, cases à cocher cliquables, rendu et exports mis à jour (4.8) |

@@ -206,6 +206,7 @@ export const cards = pgTable(
     progressNote: text("progress_note").notNull().default(""), // Point d'avancement
     nextSteps: text("next_steps").notNull().default(""), // Prochaines étapes
     alertsNote: text("alerts_note").notNull().default(""), // Alertes / arbitrages
+    startDate: date("start_date", { mode: "string" }), // début prévu (planning)
     dueDate: date("due_date", { mode: "string" }),
     progressPct: integer("progress_pct"),
     position: doublePrecision("position").notNull().default(0),
@@ -222,7 +223,8 @@ export const cards = pgTable(
   (t) => [uniqueIndex("cards_account_ref_uq").on(t.accountId, t.ref), index("cards_account_sprint_idx").on(t.accountId, t.sprintId)],
 );
 
-export const MEETING_BLOCKS = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS"] as const;
+// HIGHLIGHTS, STREAM_STATUS et TOPICS sont saisis par séance ; ALERT_CARDS et PLANNING sont des vues à date du kanban
+export const MEETING_BLOCKS = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "ALERT_CARDS", "PLANNING"] as const;
 export type MeetingBlock = (typeof MEETING_BLOCKS)[number];
 
 export const meetingTypes = pgTable(

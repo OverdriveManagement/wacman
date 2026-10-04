@@ -14,6 +14,7 @@ const SECTIONS = [
   ["meetings", "Séances sélectionnées (faits marquants, statut des streams, sujets)"],
   ["alerts", "Cartes en vigilance ou en alerte"],
   ["kanban", "Livrables du sprint, une slide par stream"],
+  ["planning", "Planning des livrables (Gantt par stream)"],
 ] as const;
 
 function MeetingPicker({ type, value, onChange }: { type: MeetingType; value: string; onChange: (v: string) => void }) {

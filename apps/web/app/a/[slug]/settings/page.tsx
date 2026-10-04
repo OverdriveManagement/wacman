@@ -4,12 +4,14 @@ import useSWR from "swr";
 import { useState } from "react";
 import { api, download, fetcher, toast } from "@/lib/api";
 import { relative } from "@/lib/format";
-import type { AccountSettings, Member, MeetingType, OptionKind } from "@/lib/types";
+import { BLOCK_LABELS, type AccountSettings, type Member, type MeetingType, type OptionKind } from "@/lib/types";
+import { MeetingTypeModal } from "@/components/MeetingTypeModal";
 import { useAcc } from "@/components/AccountContext";
 import { useMe } from "@/lib/hooks";
 import { EntityEditor } from "@/components/EntityEditor";
 import { Field, Modal, SectionTitle, Spinner, Toggle, useConfirm } from "@/components/ui";
 import { IconDownload, IconPlus, IconTrash } from "@/components/icons";
+import { RichField } from "@/components/RichText";
 
 const TABS = [
   ["general", "Général"],
@@ -28,6 +30,7 @@ export default function SettingsPage() {
   if (!acc.isAdmin) return <p className="text-sm text-muted">Réservé aux administrateurs du compte.</p>;
   return (
     <div className="space-y-5">
+      <p className="text-sm text-muted">La plupart de ces réglages se font aussi directement dans les écrans : « + » pour créer (sprint, colonne, stream, type de séance, valeur d'une liste), « ⋯ » sur un en-tête pour le modifier.</p>
       <div className="-mx-3 flex gap-1 overflow-x-auto px-3 md:mx-0 md:flex-wrap md:px-0">
         {TABS.map(([k, l]) => (
           <button key={k} className={`btn btn-sm shrink-0 ${tab === k ? "btn-primary" : ""}`} onClick={() => setTab(k)}>
@@ -63,7 +66,7 @@ function General() {
   };
   const text = (k: keyof AccountSettings, label: string, rows = 3) => (
     <Field label={label}>
-      <textarea className="input" rows={rows} value={String(settings[k] ?? "")} onChange={(e) => setSettings({ ...settings, [k]: e.target.value })} />
+      <RichField rows={rows} value={String(settings[k] ?? "")} onChange={(v) => setSettings({ ...settings, [k]: v })} />
     </Field>
   );
   return (
@@ -266,7 +269,7 @@ function MeetingTypes() {
       >
         Types de séance
       </SectionTitle>
-      <p className="-mt-2 text-sm text-muted">Chaque type de séance assemble un ou plusieurs blocs : faits marquants, statut des streams, sujets (alertes, arbitrages, informations).</p>
+      <p className="-mt-2 text-sm text-muted">Chaque type de séance assemble un ou plusieurs blocs : faits marquants, statut des streams, sujets (alertes, arbitrages, informations), et des vues à date du kanban (cartes en vigilance ou en alerte, planning par stream).</p>
       <div className="grid gap-3 md:grid-cols-2">
         {acc.data.meetingTypes.map((m) => (
           <div key={m.id} className="card p-4">
@@ -280,7 +283,7 @@ function MeetingTypes() {
                 <div className="mt-1 flex flex-wrap gap-1 text-[0.7rem]">
                   {m.blocks.map((b) => (
                     <span key={b} className="rounded-full bg-surface-2 px-2 py-0.5 text-ink-2">
-                      {BLOCKS[b]}
+                      {BLOCK_LABELS[b]}
                     </span>
                   ))}
                 </div>
@@ -307,98 +310,6 @@ function MeetingTypes() {
       <MeetingTypeModal item={edit} onClose={() => setEdit(null)} />
       {confirm.node}
     </section>
-  );
-}
-
-const BLOCKS: Record<string, string> = { HIGHLIGHTS: "Faits marquants", STREAM_STATUS: "Statut des streams", TOPICS: "Sujets" };
-
-function MeetingTypeModal({ item, onClose }: { item: MeetingType | "new" | null; onClose: () => void }) {
-  const acc = useAcc();
-  const blank = { name: "", emoji: "🗓️", frequency: "", description: "", guide: "", blocks: ["HIGHLIGHTS"] as string[], settings: {} as MeetingType["settings"], active: true };
-  const init = item === "new" || !item ? blank : item;
-  const [f, setF] = useState(init);
-  const [key, setKey] = useState("");
-  const k = item === "new" ? "new" : item?.id ?? "";
-  if (k !== key) {
-    setKey(k);
-    setF(init);
-  }
-  const save = async () => {
-    if (!f.name.trim() || !f.blocks.length) return toast("error", "Nom et au moins un bloc requis.");
-    const data = { name: f.name, emoji: f.emoji, frequency: f.frequency, description: f.description, guide: f.guide, blocks: f.blocks, settings: f.settings, active: f.active };
-    if (item === "new") await api(`${acc.base}/e/meetingType`, { method: "POST", json: { ...data, order: acc.data.meetingTypes.length + 1 } });
-    else if (item) await api(`${acc.base}/e/meetingType/${item.id}`, { method: "PATCH", json: data });
-    acc.mutate();
-    onClose();
-  };
-  const st = f.settings ?? {};
-  return (
-    <Modal
-      open={!!item}
-      onClose={onClose}
-      wide
-      title={item === "new" ? "Nouveau type de séance" : "Type de séance"}
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Annuler
-          </button>
-          <button className="btn btn-primary" onClick={save}>
-            Enregistrer
-          </button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <div className="grid gap-3 sm:grid-cols-[80px_1fr_1fr]">
-          <Field label="Picto">
-            <input className="input text-center" value={f.emoji} onChange={(e) => setF({ ...f, emoji: e.target.value })} />
-          </Field>
-          <Field label="Nom">
-            <input className="input" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          </Field>
-          <Field label="Fréquence">
-            <input className="input" value={f.frequency} onChange={(e) => setF({ ...f, frequency: e.target.value })} />
-          </Field>
-        </div>
-        <div>
-          <div className="label">Blocs</div>
-          <div className="flex flex-wrap gap-4">
-            {Object.entries(BLOCKS).map(([b, l]) => (
-              <label key={b} className="flex items-center gap-2 text-sm text-ink-2">
-                <input type="checkbox" checked={f.blocks.includes(b)} onChange={(e) => setF({ ...f, blocks: e.target.checked ? [...f.blocks, b] : f.blocks.filter((x) => x !== b) })} />
-                {l}
-              </label>
-            ))}
-          </div>
-        </div>
-        {f.blocks.includes("STREAM_STATUS") && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Field label="Libellé colonne statut">
-              <input className="input" value={st.statusLabel ?? ""} placeholder="Statut" onChange={(e) => setF({ ...f, settings: { ...st, statusLabel: e.target.value } })} />
-            </Field>
-            <Field label="Libellé colonne avancement">
-              <input className="input" value={st.progressLabel ?? ""} placeholder="Avancement" onChange={(e) => setF({ ...f, settings: { ...st, progressLabel: e.target.value } })} />
-            </Field>
-            <Field label="Libellé colonne alertes">
-              <input className="input" value={st.alertsLabel ?? ""} placeholder="Alertes & prérequis" onChange={(e) => setF({ ...f, settings: { ...st, alertsLabel: e.target.value } })} />
-            </Field>
-          </div>
-        )}
-        {f.blocks.includes("TOPICS") && (
-          <Field label="Libellé colonne arbitrage">
-            <input className="input" value={st.decisionLabel ?? ""} placeholder="Arbitrage ou décision demandée" onChange={(e) => setF({ ...f, settings: { ...st, decisionLabel: e.target.value } })} />
-          </Field>
-        )}
-        <Field label="Cadrage (affiché en tête de page)">
-          <textarea className="input" rows={3} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />
-        </Field>
-        <Field label="Mode d'emploi">
-          <textarea className="input" rows={5} value={f.guide} onChange={(e) => setF({ ...f, guide: e.target.value })} />
-        </Field>
-        <Toggle checked={f.active} onChange={(v) => setF({ ...f, active: v })} label="Visible dans le menu" />
-      </div>
-    </Modal>
   );
 }
 

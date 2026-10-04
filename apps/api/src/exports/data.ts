@@ -55,9 +55,19 @@ export async function latestMeetings(ctx: Ctx, meetingTypeId: string, limit = 1)
     .limit(limit);
 }
 
-/** Retire le balisage léger (**gras**, [lien](url)) pour un export texte. */
+/** Retire le balisage léger (gras, italique, souligné, barré, surligné, code, liens) pour un export texte. */
 export function plain(md: string | null | undefined): string {
-  return (md ?? "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1");
+  return (md ?? "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/==([^=]+)==/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+    .replace(/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*/g, "$1$2")
+    .replace(/^(\s*)#{1,3}\s+/gm, "$1")
+    .replace(/^(\s*)\[[xX]\]\s+/gm, "$1[fait] ")
+    .replace(/^(\s*)\[ \]\s+/gm, "$1[à faire] ");
 }
 
 export function frDate(iso: string | null | undefined): string {

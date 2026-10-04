@@ -107,14 +107,14 @@ export const ENTITIES = {
     titleField: "name",
     dateFields: [],
     orderBy: [["order", "asc"]],
-    description: "Type de séance (ex. Program weekly) : nom, fréquence, cadrage, mode d'emploi, blocs (HIGHLIGHTS, STREAM_STATUS, TOPICS).",
+    description: "Type de séance (ex. Program weekly) : nom, fréquence, cadrage, mode d'emploi, blocs (HIGHLIGHTS, STREAM_STATUS, TOPICS saisis par séance ; ALERT_CARDS et PLANNING : cartes en vigilance ou alerte et planning des cartes, vues à date).",
     create: z.object({
       name: str.min(1),
       emoji: optStr,
       frequency: optStr,
       description: optStr,
       guide: optStr,
-      blocks: z.array(z.enum(["HIGHLIGHTS", "STREAM_STATUS", "TOPICS"])).min(1),
+      blocks: z.array(z.enum(T.MEETING_BLOCKS)).min(1),
       order: z.number().int().optional(),
       settings: z.record(z.unknown()).optional(),
       active: z.boolean().optional(),
@@ -162,10 +162,10 @@ export const ENTITIES = {
     parent: "account",
     editRole: "EDITOR",
     titleField: "title",
-    dateFields: ["dueDate"],
+    dateFields: ["startDate", "dueDate"],
     orderBy: [["position", "asc"], ["ref", "asc"]],
     description:
-      "Livrable (carte du kanban) : titre, emoji, description, point d'avancement (progressNote), prochaines étapes (nextSteps), alertes / arbitrages (alertsNote), échéance (dueDate), avancement % (progressPct), stream, sprint, statut (statusId, option CARD_STATUS), niveau d'alerte (alertLevelId, option ALERT_LEVEL), porteur (ownerId, contact).",
+      "Livrable (carte du kanban) : titre, emoji, description, point d'avancement (progressNote), prochaines étapes (nextSteps), alertes / arbitrages (alertsNote), début prévu (startDate) et échéance (dueDate) pour le planning, avancement % (progressPct), stream, sprint, statut (statusId, option CARD_STATUS), niveau d'alerte (alertLevelId, option ALERT_LEVEL), porteur (ownerId, contact).",
     create: z.object({
       title: str.min(1),
       emoji: optStr,
@@ -173,6 +173,7 @@ export const ENTITIES = {
       progressNote: optStr,
       nextSteps: optStr,
       alertsNote: optStr,
+      startDate: dateStr,
       dueDate: dateStr,
       progressPct: z.number().int().min(0).max(100).nullable().optional(),
       position: z.number().optional(),
@@ -328,6 +329,12 @@ async function withCardIds(rows: Record<string, unknown>[]): Promise<Record<stri
 }
 
 /** Vérifie que les références (stream, sprint, option, contact, séance...) appartiennent bien au compte. */
+function checkCardDates(c: Record<string, unknown>) {
+  if (typeof c.startDate === "string" && typeof c.dueDate === "string" && c.startDate > c.dueDate) {
+    throw badRequest("Le début prévu doit précéder l'échéance.");
+  }
+}
+
 /** Liste de valeurs attendue pour chaque champ d'option, selon le type d'élément. */
 const OPTION_FIELD_KIND: Record<string, Record<string, string>> = {
   card: { statusId: "CARD_STATUS", alertLevelId: "ALERT_LEVEL" },
@@ -416,6 +423,7 @@ export async function createEntity(ctx: Ctx, name: string, input: unknown) {
   const parsed = def.create.safeParse(input);
   if (!parsed.success) throw badRequest("Données invalides.", parsed.error.flatten());
   const data = { ...(parsed.data as Record<string, unknown>) };
+  if (def.model === "card") checkCardDates(data);
   await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
@@ -459,6 +467,7 @@ export async function updateEntity(ctx: Ctx, name: string, id: string, input: un
   const data = { ...(parsed.data as Record<string, unknown>) };
   if (name === "option" && "kind" in data && data.kind !== before.kind) throw badRequest("Le type d'une liste ne peut pas changer.");
   if (name === "meeting") delete data.meetingTypeId;
+  if (def.model === "card") checkCardDates({ ...before, ...data });
   await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
