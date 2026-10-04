@@ -123,6 +123,42 @@ export const accountFileSchema = z.object({
       cards: z.array(z.number()).default([]),
     }),
   ),
+  // relevé des actions et registre des décisions (séances et sujets désignés par leur rang dans le fichier)
+  actions: z
+    .array(
+      z.object({
+        title: z.string(),
+        note: opt,
+        party: z.enum(T.ACTION_PARTIES).optional(),
+        owner: keyRef,
+        stream: keyRef,
+        card: z.number().int().nullable().optional(),
+        meetingType: keyRef,
+        meeting: z.number().int().nullable().optional(),
+        dueDate: opt,
+        status: z.enum(T.ACTION_STATUSES).optional(),
+        closedAt: opt,
+        order: z.number().optional(),
+        createdAt: opt,
+      }),
+    )
+    .default([]),
+  decisions: z
+    .array(
+      z.object({
+        title: z.string(),
+        detail: opt,
+        status: z.enum(T.DECISION_STATUSES).optional(),
+        decidedOn: opt,
+        stream: keyRef,
+        card: z.number().int().nullable().optional(),
+        topic: z.object({ meeting: z.number().int(), index: z.number().int() }).nullable().optional(),
+        meetingType: keyRef,
+        meeting: z.number().int().nullable().optional(),
+        order: z.number().optional(),
+      }),
+    )
+    .default([]),
   // commentaires, rattachés par Réf. de carte, rang du risque, ou rang de la séance et de l'élément dans la séance
   comments: z
     .array(
@@ -169,7 +205,7 @@ export async function importAccount(user: SessionUser, input: unknown) {
     if (existing) {
       accountId = existing.id;
       // purge du contenu : l'ordre respecte les clés étrangères ; les accès (memberships) sont conservés
-      for (const t of [T.comments, T.risks, T.meetings, T.cards, T.meetingTypes, T.governanceBodies, T.sprints, T.streams, T.contacts, T.options]) {
+      for (const t of [T.comments, T.actions, T.decisions, T.risks, T.meetings, T.cards, T.meetingTypes, T.governanceBodies, T.sprints, T.streams, T.contacts, T.options]) {
         await tx.delete(t).where(eq(t.accountId, accountId));
       }
       await tx.update(T.accounts).set(accData).where(eq(T.accounts.id, accountId));
@@ -279,8 +315,10 @@ export async function importAccount(user: SessionUser, input: unknown) {
 
     const childIds = { highlight: [] as string[][], streamStatus: [] as string[][], topic: [] as string[][] };
     const riskIds: string[] = [];
+    const meetingIds: string[] = [];
     for (const m of f.meetings) {
       const meetingId = randomUUID();
+      meetingIds.push(meetingId);
       const hIds = m.highlights.map(() => randomUUID());
       const sIds = m.statuses.map(() => randomUUID());
       const tIds = m.topics.map(() => randomUUID());
@@ -346,6 +384,42 @@ export async function importAccount(user: SessionUser, input: unknown) {
       });
       if (cardIds.length) await tx.insert(T.riskCards).values([...new Set(cardIds)].map((cardId) => ({ riskId, cardId })));
     }
+    const at = (i: number | null | undefined) => (i === null || i === undefined ? null : (meetingIds[i] ?? null));
+    if (f.actions.length)
+      await tx.insert(T.actions).values(
+        f.actions.map((a, i) => ({
+          accountId,
+          title: a.title,
+          note: s(a.note),
+          party: a.party ?? "WIFIRST",
+          ownerId: ref(maps.contact, a.owner, "contact"),
+          streamId: ref(maps.stream, a.stream, "stream"),
+          cardId: a.card !== null && a.card !== undefined ? (maps.card.get(a.card) ?? null) : null,
+          meetingTypeId: ref(maps.type, a.meetingType, "type de séance"),
+          meetingId: at(a.meeting),
+          dueDate: d(a.dueDate),
+          status: a.status ?? "OPEN",
+          closedAt: a.closedAt ? new Date(a.closedAt) : null,
+          order: a.order ?? i + 1,
+          createdAt: a.createdAt ? new Date(a.createdAt) : new Date(),
+        })),
+      );
+    if (f.decisions.length)
+      await tx.insert(T.decisions).values(
+        f.decisions.map((x, i) => ({
+          accountId,
+          title: x.title,
+          detail: s(x.detail),
+          status: x.status ?? "TAKEN",
+          decidedOn: d(x.decidedOn),
+          streamId: ref(maps.stream, x.stream, "stream"),
+          cardId: x.card !== null && x.card !== undefined ? (maps.card.get(x.card) ?? null) : null,
+          topicId: x.topic ? (childIds.topic[x.topic.meeting]?.[x.topic.index] ?? null) : null,
+          meetingTypeId: ref(maps.type, x.meetingType, "type de séance"),
+          meetingId: at(x.meeting),
+          order: x.order ?? i + 1,
+        })),
+      );
     if (f.comments.length) {
       const emails = [...new Set(f.comments.map((c) => s(c.author).toLowerCase()).filter(Boolean))];
       const authors = emails.length ? await tx.select({ id: T.users.id, email: T.users.email }).from(T.users).where(inArray(T.users.email, emails)) : [];
@@ -413,12 +487,20 @@ export async function exportAccount(user: SessionUser, accountId: string): Promi
     db.select().from(T.risks).where(eq(T.risks.accountId, accountId)),
   ]);
   const links = rks.length ? await db.select().from(T.riskCards).where(inArray(T.riskCards.riskId, rks.map((r) => r.id))) : [];
+  const [acts, decs] = await Promise.all([
+    db.select().from(T.actions).where(eq(T.actions.accountId, accountId)).orderBy(asc(T.actions.order), asc(T.actions.createdAt)),
+    db.select().from(T.decisions).where(eq(T.decisions.accountId, accountId)).orderBy(asc(T.decisions.order), asc(T.decisions.createdAt)),
+  ]);
   const cms = await db
     .select({ entityType: T.comments.entityType, entityId: T.comments.entityId, body: T.comments.body, createdAt: T.comments.createdAt, email: T.users.email })
     .from(T.comments)
     .leftJoin(T.users, eq(T.users.id, T.comments.authorId))
     .where(eq(T.comments.accountId, accountId))
     .orderBy(asc(T.comments.createdAt));
+  const mtgIndex = (id: string) => {
+    const i = mtgs.findIndex((m) => m.id === id);
+    return i === -1 ? null : i;
+  };
   // emplacement de chaque élément commentable dans le fichier exporté
   const where = new Map<string, { on: AccountFile["comments"][number]["on"]; ref?: number; meeting?: number; index?: number }>();
   cds.forEach((c) => where.set(c.id, { on: "card", ref: c.ref }));
@@ -482,6 +564,36 @@ export async function exportAccount(user: SessionUser, accountId: string): Promi
       owner: r.ownerId,
       cards: links.filter((l) => l.riskId === r.id).map((l) => refOf.get(l.cardId)!).filter((n) => n !== undefined),
     })),
+    actions: acts.map((a) => ({
+      title: a.title,
+      note: a.note,
+      party: a.party,
+      owner: a.ownerId,
+      stream: a.streamId,
+      card: a.cardId ? (refOf.get(a.cardId) ?? null) : null,
+      meetingType: a.meetingTypeId,
+      meeting: a.meetingId ? mtgIndex(a.meetingId) : null,
+      dueDate: a.dueDate,
+      status: a.status,
+      closedAt: a.closedAt ? a.closedAt.toISOString() : null,
+      order: a.order,
+      createdAt: a.createdAt.toISOString(),
+    })),
+    decisions: decs.map((x) => {
+      const tw = x.topicId ? where.get(x.topicId) : undefined;
+      return {
+        title: x.title,
+        detail: x.detail,
+        status: x.status,
+        decidedOn: x.decidedOn,
+        stream: x.streamId,
+        card: x.cardId ? (refOf.get(x.cardId) ?? null) : null,
+        topic: tw && tw.on === "topic" && tw.meeting !== undefined && tw.index !== undefined ? { meeting: tw.meeting, index: tw.index } : null,
+        meetingType: x.meetingTypeId,
+        meeting: x.meetingId ? mtgIndex(x.meetingId) : null,
+        order: x.order,
+      };
+    }),
     comments: cms
       .map((c) => {
         const w = where.get(c.entityId);

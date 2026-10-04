@@ -5,7 +5,9 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { useEffect, useState } from "react";
 import { api, download, fetcher, toast, whenIdle } from "@/lib/api";
 import { frDate, longDate, todayIso, tone } from "@/lib/format";
-import type { Card, Highlight, Meeting, MeetingType, StreamStatus, Topic } from "@/lib/types";
+import { SESSION_BLOCKS, type Action, type Card, type Decision, type Highlight, type Meeting, type MeetingType, type StreamStatus, type Topic } from "@/lib/types";
+import { ActionsList, DecisionsList, useActions, useDecisions } from "@/components/FollowUp";
+import { actionsForMeeting, decisionsForMeeting } from "@/lib/followup";
 import { useAcc, useEditMode } from "@/components/AccountContext";
 import { TagMulti, TagSelect } from "@/components/Tag";
 import { useCreators, useMe } from "@/lib/hooks";
@@ -14,13 +16,16 @@ import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pil
 import { Comments, History } from "@/components/Comments";
 import { IconChevron, IconComment, IconCopy, IconDown, IconEdit, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
 import { meetingReportText } from "@/lib/report";
-import { copyRich, meetingReportHtml } from "@/lib/reportHtml";
+import { copyRich, mailSubject, meetingReportHtml } from "@/lib/reportHtml";
 import { AlertCards } from "@/components/AlertCards";
 import { Planning } from "@/components/Planning";
 import { CardModal } from "@/components/CardModal";
 import { MeetingTypeModal } from "@/components/MeetingTypeModal";
 import { Menu } from "@/components/config";
 import { RichField } from "@/components/RichText";
+import { SuggestHighlightsModal, WhatsNewPanel } from "@/components/WhatsNew";
+import { WorkshopImport } from "@/components/WorkshopImport";
+import { ExportDialog } from "@/components/ExportDialog";
 
 /**
  * Page d'un type de séance (Program weekly, COPROJ, Strategic Committee…) : une séance à la fois,
@@ -47,6 +52,7 @@ export default function MeetingsPage() {
   const confirm = useConfirm();
   const editMode = useEditMode();
   const [dateEdit, setDateEdit] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // lien direct vers une séance (recherche, tableau de bord) : sélectionnée, puis le lien est retiré de l'adresse
   useEffect(() => {
@@ -58,7 +64,9 @@ export default function MeetingsPage() {
   if (!type) return <Empty>Type de séance introuvable.</Empty>;
   const idx = meetings ? Math.max(0, meetings.findIndex((m) => m.id === selected)) : 0;
   const meeting = meetings?.[idx] ?? null;
-  const stored = type.blocks.filter((b) => b === "HIGHLIGHTS" || b === "STREAM_STATUS" || b === "TOPICS");
+  // blocs rattachés à une séance datée : faits marquants, statut des streams, sujets, décisions, actions
+  const stored = type.blocks.filter((b) => SESSION_BLOCKS.includes(b));
+  const excelable = type.blocks.some((b) => b === "HIGHLIGHTS" || b === "STREAM_STATUS" || b === "TOPICS");
   const reload = () => mutate();
 
   return (
@@ -80,7 +88,8 @@ export default function MeetingsPage() {
           <Menu
             label="Options"
             items={[
-              ...(stored.length ? [{ label: "Exporter toutes les séances (Excel)", onClick: () => download(`${acc.base}/export/meetings.xlsx?typeId=${type.id}`) }] : []),
+              ...(meeting ? [{ label: "Exporter la séance affichée (PowerPoint)", onClick: () => setExporting(true) }] : []),
+              ...(excelable ? [{ label: "Exporter toutes les séances (Excel)", onClick: () => download(`${acc.base}/export/meetings.xlsx?typeId=${type.id}`) }] : []),
               ...(editMode ? ["sep" as const, { label: "Modifier ce type de séance", onClick: () => setTypeEdit(type) }, { label: "Nouveau type de séance", onClick: () => setTypeEdit("new") }] : []),
             ]}
           />
@@ -112,25 +121,7 @@ export default function MeetingsPage() {
               </button>
               {meeting.date > todayIso() && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold text-accent">à venir</span>}
               <div className="flex-1" />
-              <button
-                className="btn btn-ghost btn-sm"
-                title="Copier le compte rendu mis en forme, prêt à coller dans Gmail"
-                onClick={async () => {
-                  try {
-                    // un champ en cours de saisie s'enregistre au clic : on attend cet enregistrement et on relit la séance
-                    const fresh = whenIdle().then(() => api<Meeting>(`${acc.base}/meetings/${meeting.id}`, { silent: true }).catch(() => meeting));
-                    const cards = type.blocks.includes("ALERT_CARDS") ? api<Card[]>(`${acc.base}/cards`) : Promise.resolve(undefined);
-                    const signature = me?.user.name?.split(" ")[0];
-                    const html = Promise.all([fresh, cards]).then(([m, list]) => meetingReportHtml(m, type, acc, { cards: list, signature }));
-                    const how = await copyRich(html, fresh.then((m) => meetingReportText(m, type, acc)));
-                    toast("success", how === "rich" ? "Compte rendu copié avec sa mise en forme : collez-le dans votre e-mail." : "Compte rendu copié en texte simple.");
-                  } catch {
-                    toast("error", "Copie impossible dans ce navigateur.");
-                  }
-                }}
-              >
-                <IconCopy /> <span className="hidden sm:inline">Copier le CR</span>
-              </button>
+              <ReportMailButtons meeting={meeting} type={type} meetings={meetings} />
               <a className="btn btn-ghost btn-sm" href={`/print/${acc.data.account.slug}/meeting/${meeting.id}`} target="_blank" rel="noreferrer" title="Imprimer ou enregistrer en PDF">
                 <IconPrint /> <span className="hidden sm:inline">PDF</span>
               </a>
@@ -156,9 +147,12 @@ export default function MeetingsPage() {
             </div>
             <DateChangeModal open={dateEdit} meeting={meeting} onClose={() => setDateEdit(false)} onSaved={reload} />
             <div className="space-y-8 p-3 md:p-4">
+              <WhatsNewPanel key={meeting.id} meeting={meeting} onOpenCard={setOpenCard} />
               {stored.includes("HIGHLIGHTS") && <HighlightsBlock meeting={meeting} reload={reload} />}
               {stored.includes("STREAM_STATUS") && <StatusBlock meeting={meeting} type={type} reload={reload} />}
               {stored.includes("TOPICS") && <TopicsBlock meeting={meeting} type={type} reload={reload} />}
+              {stored.includes("DECISIONS") && <DecisionsBlock meeting={meeting} type={type} meetings={meetings} />}
+              {stored.includes("ACTIONS") && <ActionsBlock meeting={meeting} type={type} meetings={meetings} />}
             </div>
           </section>
         ))}
@@ -203,6 +197,11 @@ export default function MeetingsPage() {
         onDuplicated={(c) => (mutateCards(), setOpenCard(c))}
       />
       <MeetingTypeModal item={typeEdit} onClose={() => setTypeEdit(null)} />
+      <ExportDialog
+        open={exporting}
+        onClose={() => setExporting(false)}
+        initial={{ typeId: type.id, meetingId: meeting?.id, preset: /coproj/i.test(type.name) ? "coproj" : /weekly|hebdo/i.test(type.name) ? "weekly" : "custom" }}
+      />
       {confirm.node}
     </div>
   );
@@ -308,8 +307,10 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
   const [edit, setEdit] = useState<Highlight | "new" | null>(null);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
+  const [suggest, setSuggest] = useState(false);
   const ro = !acc.canEdit;
   const streams = acc.data.streams.map((s) => ({ id: s.id, label: s.active ? s.name : `${s.name} (inactif)`, emoji: s.emoji, hidden: !s.active }));
+  const myContact = acc.data.contacts.find((c) => c.userId && c.userId === meData?.user.id);
   const [quickAdd] = useSubmit(async () => {
     const title = draft.trim();
     if (!title) return;
@@ -326,6 +327,11 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
         {!ro && !adding && (
           <button className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={() => setAdding(true)} aria-label="Ajouter un fait marquant" title="Ajouter un fait marquant">
             + Ajouter
+          </button>
+        )}
+        {!ro && (
+          <button className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={() => setSuggest(true)} title="Brouillon de faits marquants rédigé par Claude à partir de ce qui a changé">
+            ✨ Proposer
           </button>
         )}
       </div>
@@ -396,6 +402,7 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
         {!meeting.highlights.length && !adding && <p className="text-sm text-muted">Aucun fait marquant.</p>}
       </div>
       <HighlightModal meeting={meeting} item={edit} onClose={() => setEdit(null)} reload={reload} onCreateType={create.option("HIGHLIGHT_TYPE")} />
+      {!ro && <SuggestHighlightsModal open={suggest} meeting={meeting} authorId={myContact?.id ?? null} onClose={() => setSuggest(false)} onAdded={reload} />}
     </div>
   );
 }
@@ -625,6 +632,12 @@ function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
   const [edit, setEdit] = useState<Topic | "new" | null>(null);
   const create = useCreators(acc);
   const decisionLabel = type.settings?.decisionLabel || "Arbitrage ou décision demandée";
+  const { mutate: mutateDecisions } = useDecisions();
+  const recordDecision = async (t: Topic) => {
+    await api(`${acc.base}/e/decision`, { method: "POST", json: { title: t.title, status: "TAKEN", decidedOn: meeting.date, topicId: t.id, meetingId: meeting.id, meetingTypeId: type.id } });
+    await mutateDecisions();
+    toast("success", "Décision ajoutée au registre : précisez-la dans le bloc Décisions.");
+  };
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
@@ -674,6 +687,11 @@ function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
                     </td>
                     {acc.canEdit && (
                       <td className="whitespace-nowrap opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+                        {type.blocks.includes("DECISIONS") && (
+                          <button className="btn btn-ghost btn-sm !px-1.5" aria-label="Consigner la décision dans le registre" title="Consigner la décision dans le registre" onClick={() => recordDecision(t)}>
+                            ⚖️
+                          </button>
+                        )}
                         <button className="btn btn-ghost btn-sm !px-1.5" aria-label="Monter" onClick={async () => (await move(acc.base, "topic", meeting.topics, i, -1), reload())}>
                           <IconUp width={14} height={14} />
                         </button>
@@ -841,5 +859,151 @@ function DateChangeModal({ open, meeting, onClose, onSaved }: { open: boolean; m
         <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
       </Field>
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Décisions et relevé des actions de la séance (registres communs au compte)
+// ---------------------------------------------------------------------------
+function DecisionsBlock({ meeting, type, meetings }: { meeting: Meeting; type: MeetingType; meetings: Meeting[] }) {
+  const { data, mutate } = useDecisions();
+  if (!data) return <Spinner />;
+  const { pending, taken } = decisionsForMeeting(data, type, meeting, meetings);
+  const defaults = { meetingTypeId: type.id, meetingId: meeting.id, decidedOn: meeting.date };
+  return (
+    <div>
+      <h3 className="mb-3 font-display text-base font-bold text-ink">⚖️ Décisions</h3>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div>
+          <div className="label mb-1.5">Décisions prises en séance</div>
+          <DecisionsList decisions={taken} defaults={defaults} status="TAKEN" onChanged={() => mutate()} emptyText="Aucune décision consignée pour cette séance." />
+        </div>
+        <div>
+          <div className="label mb-1.5">Décisions attendues</div>
+          <DecisionsList decisions={pending} defaults={defaults} status="PENDING" onChanged={() => mutate()} emptyText="Aucune décision attendue." />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionsBlock({ meeting, type, meetings }: { meeting: Meeting; type: MeetingType; meetings: Meeting[] }) {
+  const acc = useAcc();
+  const { data, mutate } = useActions();
+  const { mutate: mutateDecisions } = useDecisions();
+  const [importing, setImporting] = useState(false);
+  if (!data) return <Spinner />;
+  const list = actionsForMeeting(data, type, meeting, meetings);
+  const open = list.filter((a) => a.status === "OPEN").length;
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
+        <h3 className="font-display text-base font-bold text-ink">✅ Relevé des actions</h3>
+        <span className="text-xs text-muted">
+          {open} ouverte{open > 1 ? "s" : ""} ; une action ouverte est reprise d'une séance à l'autre jusqu'à sa clôture
+        </span>
+        {acc.canEdit && (
+          <button className="ml-auto rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={() => setImporting(true)} title="Extraire les actions, livrables et décisions d'un compte rendu ou d'une transcription">
+            📝 Importer un CR
+          </button>
+        )}
+      </div>
+      <ActionsList actions={list} defaults={{ meetingTypeId: type.id, meetingId: meeting.id }} onChanged={() => mutate()} emptyText="Aucune action en cours." />
+      {acc.canEdit && (
+        <WorkshopImport
+          key={meeting.id}
+          open={importing}
+          onClose={() => setImporting(false)}
+          onDone={() => (mutate(), mutateDecisions())}
+          defaults={{ meetingTypeId: type.id, meetingId: meeting.id, date: meeting.date }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Compte rendu par e-mail : « Copier le CR » (texte mis en forme), et dans le menu, ouverture d'un nouveau message
+ * Gmail ou de la messagerie avec l'objet et les destinataires du type de séance (le corps se colle aussitôt).
+ */
+function ReportMailButtons({ meeting, type, meetings }: { meeting: Meeting; type: MeetingType; meetings: Meeting[] }) {
+  const acc = useAcc();
+  const { data: me } = useMe();
+  const st = type.settings ?? {};
+  const build = () => {
+    // un champ en cours de saisie s'enregistre au clic : on attend cet enregistrement et on relit la séance
+    const fresh = whenIdle().then(() => api<Meeting>(`${acc.base}/meetings/${meeting.id}`, { silent: true }).catch(() => meeting));
+    const cards = type.blocks.includes("ALERT_CARDS") ? api<Card[]>(`${acc.base}/cards`) : Promise.resolve(undefined);
+    const follow = Promise.all([
+      type.blocks.includes("ACTIONS") ? api<Action[]>(`${acc.base}/e/action`, { silent: true }) : Promise.resolve([] as Action[]),
+      type.blocks.includes("DECISIONS") ? api<Decision[]>(`${acc.base}/e/decision`, { silent: true }) : Promise.resolve([] as Decision[]),
+    ]);
+    const signature = me?.user.name?.split(" ")[0];
+    const ctx = Promise.all([fresh, cards, follow]).then(([m, list, [acts, decs]]) => ({
+      m,
+      opts: { cards: list, signature, actions: actionsForMeeting(acts, type, m, meetings), decisions: decisionsForMeeting(decs, type, m, meetings) },
+    }));
+    return { html: ctx.then(({ m, opts }) => meetingReportHtml(m, type, acc, opts)), text: ctx.then(({ m, opts }) => meetingReportText(m, type, acc, opts)) };
+  };
+  const copy = async () => {
+    try {
+      const r = build();
+      return await copyRich(r.html, r.text);
+    } catch {
+      toast("error", "Copie impossible dans ce navigateur.");
+      return null;
+    }
+  };
+  const subject = mailSubject(meeting, type, acc);
+  const list = (v?: string) => (v ?? "").split(/[,;\s]+/).filter(Boolean).join(",");
+  const openGmail = async () => {
+    const how = await copy();
+    if (!how) return;
+    const q = new URLSearchParams({ view: "cm", fs: "1", su: subject });
+    if (st.mailTo) q.set("to", list(st.mailTo));
+    if (st.mailCc) q.set("cc", list(st.mailCc));
+    const base = st.mailAccount ? `https://mail.google.com/mail/u/${encodeURIComponent(st.mailAccount)}/` : "https://mail.google.com/mail/";
+    const w = window.open(`${base}?${q.toString()}`, "_blank", "noopener");
+    toast(w ? "success" : "error", w ? "Compte rendu copié : collez-le dans le message Gmail (Ctrl+V ou Cmd+V)." : "Le navigateur a bloqué l'ouverture de Gmail : autorisez les fenêtres pour WacMan. Le compte rendu est copié.");
+  };
+  const openMail = async () => {
+    const how = await copy();
+    if (!how) return;
+    const q = [`subject=${encodeURIComponent(subject)}`, ...(st.mailCc ? [`cc=${encodeURIComponent(list(st.mailCc))}`] : [])].join("&");
+    window.location.href = `mailto:${list(st.mailTo)}?${q}`;
+    toast("success", "Compte rendu copié : collez-le dans le message.");
+  };
+  return (
+    <>
+      <button
+        className="btn btn-ghost btn-sm"
+        title="Copier le compte rendu mis en forme, prêt à coller dans Gmail"
+        onClick={async () => {
+          const how = await copy();
+          if (how) toast("success", how === "rich" ? "Compte rendu copié avec sa mise en forme : collez-le dans votre e-mail." : "Compte rendu copié en texte simple.");
+        }}
+      >
+        <IconCopy /> <span className="hidden sm:inline">Copier le CR</span>
+      </button>
+      <Menu
+        label="E-mail du compte rendu"
+        trigger={
+          <span className="btn btn-ghost btn-sm" title="Préparer l'e-mail du compte rendu">
+            ✉️ <span className="hidden sm:inline">E-mail</span>
+          </span>
+        }
+        items={[
+          { label: "Nouveau message Gmail (objet et destinataires remplis)", onClick: openGmail },
+          { label: "Nouveau message dans la messagerie", onClick: openMail },
+          {
+            label: "Copier l'objet",
+            onClick: async () => {
+              await navigator.clipboard.writeText(subject);
+              toast("success", `Objet copié : ${subject}`);
+            },
+          },
+        ]}
+      />
+    </>
   );
 }

@@ -33,6 +33,7 @@ Navigateur ──► Vercel (Paris, cdg1)                 Railway (Amsterdam, eu
 - `accounts` : compte client, sections actives (`modules`), textes et libellés (`settings`), compteur des références de cartes.
 - Configuration par compte : `options` (listes de valeurs, par `kind`), `streams`, `sprints`, `meeting_types` (blocs et libellés), `governance_bodies`, `contacts`.
 - Contenu : `cards`, `meetings`, `highlights`, `stream_statuses`, `topics`, `risks` (+ `risk_cards`).
+- Suivi (V1.5) : `actions` (relevé des actions : `party` WIFIRST, CLIENT ou JOINT, `owner_id` contact, `stream_id`, `card_id`, `meeting_type_id` série de séances, `meeting_id` séance de prise, `due_date`, `status` OPEN, DONE ou CANCELLED, `closed_at` tenu par le serveur à chaque changement de statut, `order`) et `decisions` (registre : `status` PENDING ou TAKEN, `decided_on` date de la décision ou date attendue, `stream_id`, `card_id`, `topic_id` sujet d'origine, `meeting_type_id`, `meeting_id`). Une action ou une décision appartient au compte et non à une séance : la séance affiche celles de sa série prises au plus tard à sa date, ouvertes ou closes depuis la séance précédente (`lib/followup.ts`, repris à l'identique côté PowerPoint).
 - Traçabilité : `comments`, `audit_logs`, `assistant_runs`.
 
 Toutes les tables de contenu portent `account_id` ; chaque requête est filtrée par compte et chaque référence (stream, sprint, valeur de liste, contact, séance) est vérifiée comme appartenant au compte.
@@ -50,13 +51,27 @@ Le registre `packages/core/src/entities.ts` décrit chaque entité éditable (sc
 | `program.ts` | Cartes (déplacement, duplication), bascule de sprint, séances, commentaires, journal |
 | `insights.ts` | Tableau de bord (indicateurs calculés côté serveur, date du jour à Paris) et recherche globale (insensible aux accents par `translate(lower(...))`, sans extension PostgreSQL) |
 | `tokens.ts` | Jetons d'accès personnels : création, liste, révocation, résolution |
-| `transfer.ts` | Import et export d'un compte (format `wacman-account-v1`) |
+| `transfer.ts` | Import et export d'un compte (format `wacman-account-v1`, avec commentaires, actions et décisions ; séances et sujets référencés par leur rang dans le fichier) |
+| `review.ts` | Vues de synthèse calculées à partir du journal : `meetingChanges` (quoi de neuf depuis la séance précédente du même type, sur les jours de Paris), `streamReview` (revue d'un stream), `sprintReview` (bilan d'un sprint ; cartes reportées lues dans l'entrée de journal de la bascule, qui enregistre depuis la V1.5 `{ from, to, moved }`) |
 
 Le balisage léger est découpé par un seul module, `packages/core/src/markup.ts` (`tokenizeInline`, `parseLine`, `markupToPlain`), copié à l'identique dans `apps/web/lib/markup.ts` (le script `tools/check_markup_sync.sh` vérifie que les deux copies sont identiques). L'affichage (`Markdown.tsx`), le compte rendu (`lib/reportHtml.ts`, `lib/report.ts`), Excel (`exports/data.ts`) et PowerPoint (`exports/pptx.ts`) en dérivent.
 
 Les identifiants sont contrôlés par `isUuid` (`context.ts`, format strict) avant toute requête ; les filtres de liste génériques sont adaptés au type de colonne (une valeur impossible renvoie une liste vide).
 
 Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le format UUID, l'appartenance au compte et, pour les listes de valeurs, le type attendu selon le champ (par exemple `statusId` d'une carte dans CARD_STATUS, d'un risque dans RISK_STATUS).
+
+## Propositions de Claude hors assistant (apps/api/src/ai.ts)
+
+- `extractFromTranscript` (`POST /api/accounts/:compte/ai/extract`, corps jusqu'à 25 Mo) : texte collé ou fichier en base64 (.docx lu par mammoth, .txt, .md, .vtt et .srt nettoyés des horodatages), tronqué à 250 000 caractères ; un appel `messages.create` avec `tool_choice` imposé (outil `proposer_suivi`) renvoie actions, cartes et décisions ; les noms de stream et de contact sont rapprochés de ceux du compte (`pick`, sans accents ni ponctuation), les dates mal formées écartées.
+- `suggestHighlights` (`POST /api/accounts/:compte/meetings/:id/suggest-highlights`) : brouillon de faits marquants (outil `proposer_faits_marquants`) à partir de `meetingChanges` et des cartes en alerte.
+- Rien n'est écrit : le navigateur crée ensuite les éléments validés par les routes génériques. Réservé aux éditeurs, en session navigateur (refusé par jeton d'accès), 30 appels par heure et par utilisateur (`throttle`).
+- Routes de synthèse : `GET /api/accounts/:compte/meetings/:id/changes`, `GET /api/accounts/:compte/streams/:id/review`, `GET /api/accounts/:compte/sprints/:id/review`.
+
+## Exports PowerPoint (apps/api/src/exports)
+
+- `pptxKit.ts` : palette, polices, conversion du balisage en segments (`runs`), troncature (`clip`), pagination des tableaux.
+- `pptx.ts` : `buildDeck` (paramètres `sections`, `sprintId`, `meetings`, `focus`, `name`), couverture, livrables compacts, faits marquants, statut des streams et sujets en tableau, cartes en alerte, planning. La section `meetings` vaut `highlights`, `statuses` et `topics`.
+- `pptxDeck.ts` : slides au format des decks (livrables du sprint, météo des streams, focus stream, attentes du client, avancement des streams en cartes COPROJ, registre des décisions, relevé des actions, bilan de sprint), sur un `DeckKit` commun (création de slide, tableau paginé, données du compte).
 
 ## Serveur MCP (apps/api/src/mcp.ts)
 
@@ -85,11 +100,13 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 - Fraîcheur : `components/Freshness.tsx` (étiquette, éditeur et fenêtre des paliers) et `lib/freshness.ts` (jours calendaires à l'heure de Paris, palier, contrôles identiques à l'API).
 - Planning : `components/Planning.tsx` (Gantt en HTML et CSS, glisser au jour près par événements pointeur ; règles de barre partagées avec la slide PowerPoint : début prévu ou début du sprint, échéance ou fin du sprint, jalon si échéance seule).
 - Saisie fiable : `useSubmit` (`components/ui.tsx`) ignore un second envoi pendant le premier ; `whenIdle()` (`lib/api.ts`) attend la fin des écritures en cours (utilisé par « Copier le CR ») ; les fenêtres (`Modal`) forment une pile : Échap et le verrouillage du défilement ne concernent que la fenêtre du dessus ; `acc.mutate()` rafraîchit aussi toutes les données du compte (cartes, séances, tableau de bord).
+- Suivi (V1.5) : `components/FollowUp.tsx` (listes éditables `ActionsList` et `DecisionsList`, utilisées par les séances, la page `followup` et la revue de stream), `lib/followup.ts` (porteurs, actions et décisions d'une séance, gabarits d'e-mail), `components/WorkshopImport.tsx` (import d'un compte rendu, validation une par une), `components/WhatsNew.tsx` (quoi de neuf, faits marquants proposés), `components/Review.tsx` (briques des revues et mode présentation plein écran), pages `streams` (revue de stream, stream dans `?s=` mis à jour par `history.replaceState`) et `sprints/[id]` (bilan). `components/ExportDialog.tsx` propose les modèles d'export (Program weekly, COPROJ, Bilan de sprint, Personnalisé) et accepte une séance présélectionnée.
+- E-mails : `lib/reportHtml.ts` construit aussi l'objet (`mailSubject`, gabarit du type de séance), le bilan de sprint (`sprintReviewHtml`, `sprintReviewText`) ; le menu E-mail de la séance ouvre Gmail (`mail.google.com/mail/u/<compte>/?view=cm`) ou `mailto:` après la copie.
 - Mise en forme : `components/RichText.tsx` (barre d'outils, raccourcis, prolongation des listes ; transformations pures sur le texte et la sélection) et `components/Markdown.tsx` (rendu, cases cliquables). Le balisage léger est retiré ou converti par `plain()` (API) et `plainText()` (compte rendu texte), converti en HTML d'e-mail à styles en ligne par `mdToHtml()` (`lib/reportHtml.ts` : `meetingReportHtml()` et `copyRich()`, qui pose `text/html` et `text/plain` dans le presse-papiers, avec repli par sélection et copie), et converti en segments mis en forme par `runs()` (PowerPoint).
 
 ## Migrations
 
-Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), uniquement des ajouts.
+Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), `0004_actions_decisions` (V1.5 : tables `actions` et `decisions`, blocs ACTIONS et DECISIONS ajoutés aux types existants, décisions reprises des lignes « Décision : … » des sujets, relevé du COPROJ LP du 01/10/2026 et réglages d'e-mail du COPROJ LP pour le compte La Poste, chaque reprise ne s'appliquant qu'une fois), uniquement des ajouts.
 
 ## Pourquoi Drizzle plutôt que Prisma
 

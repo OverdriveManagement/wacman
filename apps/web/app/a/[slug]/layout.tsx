@@ -105,6 +105,8 @@ export default function AccountLayout({ children }: { children: ReactNode }) {
         ...acc.data.meetingTypes
           .filter((m) => m.active)
           .map((m) => ({ href: `${base}/meetings/${m.id}`, label: m.name, icon: <span className="w-[18px] text-center">{m.emoji || "🗓️"}</span> })),
+        { href: `${base}/followup`, label: "Actions & décisions", icon: <span className="w-[18px] text-center">✅</span> },
+        { href: `${base}/streams`, label: "Revue de stream", icon: <span className="w-[18px] text-center">🔎</span> },
         { href: `${base}/risks`, label: "Risques & arbitrages", icon: <IconShield /> },
         { href: `${base}/governance`, label: "Gouvernance", icon: <IconBuilding /> },
         { href: `${base}/journal`, label: "Journal", icon: <IconHistory /> },

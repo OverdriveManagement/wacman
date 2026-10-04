@@ -105,17 +105,72 @@ export interface Contact {
   userId: string | null;
 }
 
-export type MeetingBlock = "HIGHLIGHTS" | "STREAM_STATUS" | "TOPICS" | "ALERT_CARDS" | "PLANNING";
+export type MeetingBlock = "HIGHLIGHTS" | "STREAM_STATUS" | "TOPICS" | "ALERT_CARDS" | "PLANNING" | "ACTIONS" | "DECISIONS";
 
 /** Blocs d'un type de séance, dans l'ordre d'affichage. Les deux derniers sont des vues à date du kanban. */
 export const BLOCK_LABELS: Record<MeetingBlock, string> = {
   HIGHLIGHTS: "Faits marquants",
   STREAM_STATUS: "Statut des streams",
   TOPICS: "Sujets",
+  DECISIONS: "Décisions (registre)",
+  ACTIONS: "Relevé des actions",
   ALERT_CARDS: "Cartes en vigilance ou en alerte (à date)",
   PLANNING: "Planning des cartes par stream (à date)",
 };
-export const BLOCK_ORDER: MeetingBlock[] = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "ALERT_CARDS", "PLANNING"];
+export const BLOCK_ORDER: MeetingBlock[] = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "DECISIONS", "ACTIONS", "ALERT_CARDS", "PLANNING"];
+/** Blocs rattachés à une séance datée (les autres sont des vues à date du kanban). */
+export const SESSION_BLOCKS: MeetingBlock[] = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "DECISIONS", "ACTIONS"];
+
+export type ActionParty = "WIFIRST" | "CLIENT" | "JOINT";
+export interface Action {
+  id: string;
+  title: string;
+  note: string;
+  party: ActionParty;
+  ownerId: string | null;
+  streamId: string | null;
+  cardId: string | null;
+  meetingTypeId: string | null;
+  meetingId: string | null;
+  dueDate: string | null;
+  status: "OPEN" | "DONE" | "CANCELLED";
+  closedAt: string | null;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Decision {
+  id: string;
+  title: string;
+  detail: string;
+  status: "PENDING" | "TAKEN";
+  decidedOn: string | null;
+  streamId: string | null;
+  cardId: string | null;
+  topicId: string | null;
+  meetingTypeId: string | null;
+  meetingId: string | null;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Réglages d'un type de séance : libellés des colonnes et e-mail du compte rendu. */
+export interface MeetingTypeSettings {
+  statusLabel?: string;
+  progressLabel?: string;
+  alertsLabel?: string;
+  decisionLabel?: string;
+  /** objet de l'e-mail ; variables {type}, {date}, {date_longue}, {compte}, {client} */
+  mailSubject?: string;
+  mailTo?: string;
+  mailCc?: string;
+  mailIntro?: string;
+  mailOutro?: string;
+  /** compte Gmail d'envoi (pour ouvrir le bon compte quand plusieurs sont connectés) */
+  mailAccount?: string;
+}
 
 export interface MeetingType {
   id: string;
@@ -126,7 +181,7 @@ export interface MeetingType {
   guide: string;
   blocks: MeetingBlock[];
   order: number;
-  settings: { statusLabel?: string; progressLabel?: string; alertsLabel?: string; decisionLabel?: string };
+  settings: MeetingTypeSettings;
   active: boolean;
 }
 
@@ -335,4 +390,66 @@ export interface ApiToken {
   lastUsedAt: string | null;
   expiresAt: string | null;
   createdAt: string;
+}
+
+/** Carte allégée des vues de synthèse (quoi de neuf, revue de stream, bilan de sprint). */
+export interface ReviewCard extends CardLite {
+  sprintId: string | null;
+  alertsNote: string;
+  progressNote: string;
+  nextSteps: string;
+  contentUpdatedAt: string;
+}
+
+/** Ce qui a changé depuis la séance précédente du même type. */
+export interface MeetingChanges {
+  since: string;
+  until: string;
+  previousMeetingId: string | null;
+  cards: {
+    created: ReviewCard[];
+    done: ReviewCard[];
+    moved: ReviewCard[];
+    alertUp: ReviewCard[];
+    alertDown: ReviewCard[];
+    due: { card: ReviewCard; from: string | null; to: string | null }[];
+    updated: number;
+    deleted: { id: string; summary: string }[];
+  };
+  streams: { streamId: string | null; before: string[]; after: string[]; statusChanged: boolean; textChanged: boolean; isNew: boolean }[];
+  actions: {
+    created: { id: string; title: string; party: ActionParty; streamId: string | null; status: Action["status"] }[];
+    closed: { id: string; title: string; party: ActionParty; streamId: string | null; status: Action["status"] }[];
+  };
+  decisions: { id: string; title: string; status: Decision["status"]; decidedOn: string | null; meetingTypeId: string | null; streamId: string | null }[];
+  sprintSwitches: { summary: string; at: string }[];
+}
+
+/** Revue d'un stream : point hebdomadaire avec le stream leader. */
+export interface StreamReview {
+  stream: Stream;
+  cards: ReviewCard[];
+  status: (StreamStatus & { date: string; meetingTypeId: string; meetingId: string }) | null;
+  previousStatus: (StreamStatus & { date: string }) | null;
+  highlights: (Highlight & { date: string; meetingTypeId: string })[];
+  actions: Action[];
+  decisions: Decision[];
+  risks: Risk[];
+  activity: { id: string; entityId: string; action: string; summary: string; userName: string; createdAt: string }[];
+}
+
+/** Bilan d'un sprint (à la bascule). */
+export interface SprintReview {
+  sprint: Sprint;
+  next: Sprint | null;
+  switchedAt: string | null;
+  period: { from: string; to: string };
+  stats: { total: number; done: number; carried: number; alerts: number };
+  done: ReviewCard[];
+  carried: ReviewCard[];
+  alerts: ReviewCard[];
+  decisions: Decision[];
+  actionsClosed: Action[];
+  actionsOpen: Action[];
+  highlights: (Highlight & { date: string })[];
 }

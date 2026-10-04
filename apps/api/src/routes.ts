@@ -47,6 +47,9 @@ import {
   getDashboard,
   searchAccount,
   duplicateCard,
+  meetingChanges,
+  streamReview,
+  sprintReview,
 } from "@wacman/core";
 import { env } from "./env.js";
 import { clearSessionCookie, requireUser, setSessionCookie, signAssistantToken, signSession, throttle } from "./auth.js";
@@ -54,6 +57,7 @@ import { sendLoginCode, sendResetCode } from "./mail.js";
 import { buildCardsWorkbook, buildMeetingsWorkbook } from "./exports/xlsx.js";
 import { buildDeck } from "./exports/pptx.js";
 import { runAssistant, listAssistantRuns } from "./assistant/run.js";
+import { extractFromTranscript, suggestHighlights } from "./ai.js";
 
 type P = { acc: string; entity: string; id: string; type: string; commentId: string };
 
@@ -201,6 +205,11 @@ export async function registerRoutes(app: FastifyInstance) {
   });
   app.get("/api/accounts/:acc/meetings/:id", async (req) => getMeeting(await ctxOf(req), (req.params as P).id));
   app.post("/api/accounts/:acc/meetings", async (req) => createMeeting(await ctxOf(req), req.body));
+  app.get("/api/accounts/:acc/meetings/:id/changes", async (req) => meetingChanges(await ctxOf(req), (req.params as P).id));
+
+  // Revues : stream (heure hebdomadaire avec le responsable) et bilan de sprint
+  app.get("/api/accounts/:acc/streams/:id/review", async (req) => streamReview(await ctxOf(req), (req.params as P).id));
+  app.get("/api/accounts/:acc/sprints/:id/review", async (req) => sprintReview(await ctxOf(req), (req.params as P).id));
 
   app.get("/api/accounts/:acc/comments/:type/:id", async (req) => listComments(await ctxOf(req), (req.params as P).type, (req.params as P).id));
   app.post("/api/accounts/:acc/comments/:type/:id", async (req) =>
@@ -236,6 +245,8 @@ export async function registerRoutes(app: FastifyInstance) {
       sprintId: q.sprintId,
       meetingIds: q.meetings === undefined ? undefined : q.meetings.split(",").filter((x) => UUID_RE.test(x)),
       sections: (q.sections ?? "cover,alerts,kanban,meetings").split(",").filter(Boolean),
+      focus: q.focus ? q.focus.split(",").filter((x) => UUID_RE.test(x)) : undefined,
+      name: q.name,
     });
     return sendFile(reply, buffer, filename, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
   });
@@ -272,6 +283,18 @@ export async function registerRoutes(app: FastifyInstance) {
     return reply;
   });
   app.get("/api/accounts/:acc/assistant/runs", async (req) => listAssistantRuns(await ctxOf(req)));
+
+  // Propositions ponctuelles de Claude (rien n'est enregistré sans validation)
+  app.post("/api/accounts/:acc/ai/extract", { bodyLimit: 25 * 1024 * 1024 }, async (req) => {
+    const user = requireSession(req);
+    throttle(`ai:${user.id}`, 30, 60 * 60_000);
+    return extractFromTranscript(await buildCtx(user, (req.params as P).acc), req.body);
+  });
+  app.post("/api/accounts/:acc/meetings/:id/suggest-highlights", async (req) => {
+    const user = requireSession(req);
+    throttle(`ai:${user.id}`, 30, 60 * 60_000);
+    return suggestHighlights(await buildCtx(user, (req.params as P).acc), (req.params as P).id);
+  });
 }
 
 function sendFile(reply: import("fastify").FastifyReply, buffer: Buffer, filename: string, type: string) {

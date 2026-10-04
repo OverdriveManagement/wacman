@@ -226,8 +226,9 @@ export const cards = pgTable(
   (t) => [uniqueIndex("cards_account_ref_uq").on(t.accountId, t.ref), index("cards_account_sprint_idx").on(t.accountId, t.sprintId)],
 );
 
-// HIGHLIGHTS, STREAM_STATUS et TOPICS sont saisis par séance ; ALERT_CARDS et PLANNING sont des vues à date du kanban
-export const MEETING_BLOCKS = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "ALERT_CARDS", "PLANNING"] as const;
+// HIGHLIGHTS, STREAM_STATUS et TOPICS sont saisis par séance ; ALERT_CARDS et PLANNING sont des vues à date du kanban ;
+// ACTIONS et DECISIONS montrent le relevé des actions et le registre des décisions suivis dans ce type de séance
+export const MEETING_BLOCKS = ["HIGHLIGHTS", "STREAM_STATUS", "TOPICS", "ALERT_CARDS", "PLANNING", "ACTIONS", "DECISIONS"] as const;
 export type MeetingBlock = (typeof MEETING_BLOCKS)[number];
 
 export const meetingTypes = pgTable(
@@ -346,6 +347,61 @@ export const risks = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [index("risks_account_idx").on(t.accountId)],
+);
+
+/** Côté qui porte une action : Wifirst, le client, ou les deux. */
+export const ACTION_PARTIES = ["WIFIRST", "CLIENT", "JOINT"] as const;
+export const ACTION_STATUSES = ["OPEN", "DONE", "CANCELLED"] as const;
+
+/**
+ * Relevé des actions : une action est suivie dans une série de séances (meetingTypeId) jusqu'à sa clôture ;
+ * elle reste affichée de séance en séance tant qu'elle est ouverte.
+ */
+export const actions = pgTable(
+  "actions",
+  {
+    id: id(),
+    accountId: accountRef(),
+    title: text("title").notNull(),
+    note: text("note").notNull().default(""),
+    party: text("party").$type<(typeof ACTION_PARTIES)[number]>().notNull().default("WIFIRST"),
+    ownerId: uuid("owner_id").references(() => contacts.id, { onDelete: "set null" }),
+    streamId: uuid("stream_id").references(() => streams.id, { onDelete: "set null" }),
+    cardId: uuid("card_id").references(() => cards.id, { onDelete: "set null" }),
+    meetingTypeId: uuid("meeting_type_id").references(() => meetingTypes.id, { onDelete: "set null" }),
+    meetingId: uuid("meeting_id").references(() => meetings.id, { onDelete: "set null" }), // séance où l'action a été prise
+    dueDate: date("due_date", { mode: "string" }),
+    status: text("status").$type<(typeof ACTION_STATUSES)[number]>().notNull().default("OPEN"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    order: doublePrecision("order").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("actions_account_idx").on(t.accountId), index("actions_type_idx").on(t.meetingTypeId)],
+);
+
+export const DECISION_STATUSES = ["PENDING", "TAKEN"] as const;
+
+/** Registre des décisions : attendues (à faire trancher) ou prises (avec la date et l'instance). */
+export const decisions = pgTable(
+  "decisions",
+  {
+    id: id(),
+    accountId: accountRef(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull().default(""),
+    status: text("status").$type<(typeof DECISION_STATUSES)[number]>().notNull().default("TAKEN"),
+    decidedOn: date("decided_on", { mode: "string" }),
+    streamId: uuid("stream_id").references(() => streams.id, { onDelete: "set null" }),
+    cardId: uuid("card_id").references(() => cards.id, { onDelete: "set null" }),
+    topicId: uuid("topic_id").references(() => topics.id, { onDelete: "set null" }),
+    meetingTypeId: uuid("meeting_type_id").references(() => meetingTypes.id, { onDelete: "set null" }),
+    meetingId: uuid("meeting_id").references(() => meetings.id, { onDelete: "set null" }),
+    order: doublePrecision("order").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("decisions_account_idx").on(t.accountId), index("decisions_type_idx").on(t.meetingTypeId)],
 );
 
 export const riskCards = pgTable(

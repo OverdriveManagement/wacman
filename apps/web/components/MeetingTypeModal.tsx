@@ -92,6 +92,32 @@ export function MeetingTypeModal({ item, onClose }: { item: MeetingType | "new" 
             <input className="input" value={st.decisionLabel ?? ""} placeholder="Arbitrage ou décision demandée" onChange={(e) => setF({ ...f, settings: { ...st, decisionLabel: e.target.value } })} />
           </Field>
         )}
+        <details className="rounded-xl border border-line-soft p-3" open={!!(st.mailSubject || st.mailTo)}>
+          <summary className="cursor-pointer text-sm font-semibold text-ink-2">E-mail du compte rendu</summary>
+          <p className="mt-2 text-xs text-muted">Variables : {"{type}"}, {"{date}"} (01/10/2026), {"{date_longue}"} (1er octobre 2026), {"{compte}"}, {"{client}"}.</p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <Field label="Objet">
+              <input className="input" value={st.mailSubject ?? ""} placeholder="CR {type} du {date}" onChange={(e) => setF({ ...f, settings: { ...st, mailSubject: e.target.value } })} />
+            </Field>
+            <Field label="Compte Gmail d'envoi" hint="Ouvre le bon compte quand plusieurs sont connectés.">
+              <input className="input" type="email" value={st.mailAccount ?? ""} placeholder="prenom.nom@wifirst.fr" onChange={(e) => setF({ ...f, settings: { ...st, mailAccount: e.target.value } })} />
+            </Field>
+            <Field label="Destinataires (À)" hint="Adresses séparées par des virgules.">
+              <input className="input" value={st.mailTo ?? ""} onChange={(e) => setF({ ...f, settings: { ...st, mailTo: e.target.value } })} />
+            </Field>
+            <Field label="Copie (Cc)">
+              <input className="input" value={st.mailCc ?? ""} onChange={(e) => setF({ ...f, settings: { ...st, mailCc: e.target.value } })} />
+            </Field>
+          </div>
+          <div className="mt-3 grid gap-3">
+            <Field label="Introduction (après « Bonjour, »)">
+              <RichField rows={2} value={st.mailIntro ?? ""} onChange={(v) => setF({ ...f, settings: { ...st, mailIntro: v } })} />
+            </Field>
+            <Field label="Formule de fin (avant « Bonne journée, »)">
+              <RichField rows={2} value={st.mailOutro ?? ""} onChange={(v) => setF({ ...f, settings: { ...st, mailOutro: v } })} />
+            </Field>
+          </div>
+        </details>
         <Field label="Cadrage (affiché en tête de page)">
           <RichField rows={3} value={f.description} onChange={(v) => setF({ ...f, description: v })} />
         </Field>

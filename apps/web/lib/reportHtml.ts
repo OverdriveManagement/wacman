@@ -6,7 +6,9 @@
  */
 
 import type { AccountCtx } from "./hooks";
-import type { Card, Meeting, MeetingType } from "./types";
+import type { Action, Card, Decision, Meeting, MeetingType, ReviewCard, SprintReview } from "./types";
+import { fillTemplate, partyLabel, stripDecisions } from "./followup";
+import { frDate } from "./format";
 import { parseLine, tokenizeInline, type MarkToken } from "./markup";
 
 const BLUE = "#1d4ed8";
@@ -143,6 +145,19 @@ export function mailDate(iso: string) {
 export interface ReportOptions {
   cards?: Card[]; // pour le bloc « cartes en vigilance ou en alerte »
   signature?: string; // prénom pour la formule finale
+  actions?: Action[]; // relevé des actions de la séance (déjà filtré)
+  decisions?: { pending: Decision[]; taken: Decision[] }; // décisions de la séance (déjà filtrées)
+}
+
+/** Variables des gabarits d'e-mail d'une séance. */
+export function mailVars(meeting: Meeting, type: MeetingType, acc: AccountCtx) {
+  const a = acc.data!.account;
+  return { type: type.name, date: frDate(meeting.date), dateLongue: mailDate(meeting.date), compte: a.name, client: a.clientName };
+}
+
+/** Objet de l'e-mail du compte rendu (gabarit du type de séance, sinon « CR <type> du <date> »). */
+export function mailSubject(meeting: Meeting, type: MeetingType, acc: AccountCtx) {
+  return fillTemplate(type.settings?.mailSubject?.trim() || "CR {type} du {date}", mailVars(meeting, type, acc));
 }
 
 /** Corps HTML complet du compte rendu. */
@@ -151,8 +166,10 @@ export function meetingReportHtml(meeting: Meeting, type: MeetingType, acc: Acco
   const parts: string[] = [];
   let n = 0;
 
+  const vars = mailVars(meeting, type, acc);
   parts.push(`<p>Bonjour,</p>`);
-  parts.push(`<p>Vous trouverez ci-dessous le compte rendu du ${esc(type.name)} du ${mailDate(meeting.date)}.</p>`);
+  const intro = st.mailIntro?.trim() ? fillTemplate(st.mailIntro, vars) : `Vous trouverez ci-dessous le compte rendu du ${type.name} du ${vars.dateLongue}.`;
+  parts.push(`<p>${mdToHtml(intro)}</p>`);
 
   // ------------------------------------------------ faits marquants
   if (type.blocks.includes("HIGHLIGHTS")) {
@@ -247,6 +264,8 @@ ${overview.join("\n")}
   }
 
   // ------------------------------------------------ sujets
+  // avec le registre des décisions, les lignes « Décision : … » d'un sujet sont présentées dans la section Décisions
+  const request = (txt: string) => (type.blocks.includes("DECISIONS") ? stripDecisions(txt) : txt);
   if (type.blocks.includes("TOPICS")) {
     parts.push(h3(++n, "Sujets"));
     if (!meeting.topics.length) parts.push(`<p style="color:${MUTED}">Aucun sujet.</p>`);
@@ -264,7 +283,7 @@ ${overview.join("\n")}
               lines(
                 `<b>${inline(t.title)}</b>`,
                 t.description.trim() && mdToHtml(t.description),
-                t.decisionRequest.trim() && `<span style="color:#9a3412"><b>${esc(st.decisionLabel || "Arbitrage demandé")} :</b></span> ${mdToHtml(t.decisionRequest)}`,
+                request(t.decisionRequest).trim() && `<span style="color:#9a3412"><b>${esc(st.decisionLabel || "Arbitrage demandé")} :</b></span> ${mdToHtml(request(t.decisionRequest))}`,
               ),
             ];
           }),
@@ -272,15 +291,175 @@ ${overview.join("\n")}
       );
   }
 
+  // ------------------------------------------------ décisions
+  if (type.blocks.includes("DECISIONS") && opts.decisions && (opts.decisions.taken.length || opts.decisions.pending.length)) {
+    parts.push(h3(++n, "Décisions"));
+    const sname = (id: string | null) => (id ? esc(acc.str.get(id)?.name ?? "") : "");
+    const row = (d: Decision) => [d.decidedOn ? frDate(d.decidedOn) : "", lines(`<b>${inline(d.title)}</b>`, d.detail.trim() && mdToHtml(d.detail)), sname(d.streamId)];
+    if (opts.decisions.taken.length) parts.push(table([["Date", "12%"], ["Décision prise"], ["Stream", "22%"]], opts.decisions.taken.map(row)));
+    if (opts.decisions.pending.length) {
+      if (opts.decisions.taken.length) parts.push(`<div style="height:10px"></div>`);
+      parts.push(table([["Pour le", "12%"], ["Décision attendue"], ["Stream", "22%"]], opts.decisions.pending.map(row)));
+    }
+  }
+
+  // ------------------------------------------------ relevé des actions (présentation du CR COPROJ du 03/10/2026)
+  if (type.blocks.includes("ACTIONS") && opts.actions && opts.actions.length) {
+    parts.push(h3(++n, "Relevé des actions"));
+    const withDue = opts.actions.some((a) => a.dueDate);
+    parts.push(
+      table(
+        [["#", "5%"], ["Porteur", "13%"], ["Stream", "24%"], ["Action"], ...(withDue ? ([["Échéance", "11%"]] as [string, string][]) : [])],
+        opts.actions.map((a, i) => {
+          const owner = a.ownerId ? acc.ctc.get(a.ownerId)?.name : "";
+          const state = a.status === "DONE" ? ` <span style="color:#166534;font-size:12px">(fait)</span>` : a.status === "CANCELLED" ? ` <span style="color:${MUTED};font-size:12px">(abandonnée)</span>` : "";
+          return [
+            String(i + 1),
+            esc(partyLabel(a.party, acc)) + (owner ? `<br><span style="color:${MUTED};font-size:12px">${esc(owner)}</span>` : ""),
+            a.streamId ? esc(acc.str.get(a.streamId)?.name ?? "") : "",
+            `${inline(a.title)}${state}`,
+            ...(withDue ? [a.dueDate ? frDate(a.dueDate) : ""] : []),
+          ];
+        }),
+      ),
+    );
+  }
+
   if (meeting.notes?.trim()) {
     parts.push(h3(++n, "Notes"));
     parts.push(`<p>${mdToHtml(meeting.notes)}</p>`);
   }
 
-  parts.push(`<p style="margin-top:22px">N'hésitez pas à revenir vers moi pour tout complément.</p>`);
+  const outro = st.mailOutro?.trim() ? fillTemplate(st.mailOutro, vars) : "N'hésitez pas à revenir vers moi pour tout complément.";
+  parts.push(`<p style="margin-top:22px">${mdToHtml(outro)}</p>`);
   parts.push(`<p>Bonne journée,${opts.signature ? `<br>${esc(opts.signature)}` : ""}</p>`);
 
   return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;line-height:1.45;max-width:800px">\n${parts.join("\n")}\n</div>`;
+}
+
+// ------------------------------------------------------------------ bilan de sprint (B9)
+
+/** Objet de l'e-mail du bilan de sprint. */
+export function sprintReviewSubject(r: SprintReview, acc: AccountCtx) {
+  return `${acc.data!.account.name} : bilan du ${r.sprint.name}`;
+}
+
+function sprintFacts(r: SprintReview) {
+  const pct = r.stats.total ? Math.round((r.stats.done / r.stats.total) * 100) : 0;
+  const period = r.period.from !== "0000-01-01" ? `du ${frDate(r.period.from)} au ${frDate(r.period.to)}` : `jusqu'au ${frDate(r.period.to)}`;
+  return { pct, period };
+}
+
+/** Bilan d'un sprint en HTML d'e-mail, dans la présentation du compte rendu de séance. */
+export function sprintReviewHtml(r: SprintReview, acc: AccountCtx, signature?: string): string {
+  const parts: string[] = [];
+  let n = 0;
+  const { pct, period } = sprintFacts(r);
+  const sname = (id: string | null) => (id ? esc(acc.str.get(id)?.name ?? "") : `<span style="color:${MUTED}">Transverse</span>`);
+  const cardCell = (c: ReviewCard, note?: string) => lines(`<b>${esc(`#${c.ref} ${c.title}`)}</b>`, note?.trim() && mdToHtml(note), c.dueDate && `<span style="color:${MUTED};font-size:12px">Échéance ${frDate(c.dueDate)}</span>`);
+  const byStream = (list: ReviewCard[]) => [...list].sort((a, b) => (acc.str.get(a.streamId ?? "")?.order ?? 999) - (acc.str.get(b.streamId ?? "")?.order ?? 999) || a.ref - b.ref);
+
+  parts.push(`<p>Bonjour,</p>`);
+  parts.push(`<p>Voici le bilan du ${esc(r.sprint.name)} (${period}).</p>`);
+
+  parts.push(h3(++n, "Synthèse"));
+  const facts = [
+    `<b>${r.stats.done}</b> livrable${r.stats.done > 1 ? "s" : ""} terminé${r.stats.done > 1 ? "s" : ""} sur <b>${r.stats.total}</b> (${pct} %)`,
+    r.sprint.state === "DONE"
+      ? r.stats.carried
+        ? `<b>${r.stats.carried}</b> reporté${r.stats.carried > 1 ? "s" : ""}${r.next ? ` au ${esc(r.next.name)}` : ""}`
+        : "aucun livrable reporté"
+      : `<b>${r.stats.carried}</b> restant${r.stats.carried > 1 ? "s" : ""} à terminer`,
+    r.stats.alerts ? `<b>${r.stats.alerts}</b> en vigilance ou en alerte` : "aucun livrable en alerte",
+    `${r.decisions.length} décision${r.decisions.length > 1 ? "s" : ""} prise${r.decisions.length > 1 ? "s" : ""}, ${r.actionsClosed.length} action${r.actionsClosed.length > 1 ? "s" : ""} close${r.actionsClosed.length > 1 ? "s" : ""}`,
+  ];
+  parts.push(`<ul style="margin:2px 0;padding-left:20px">${facts.map((f) => `<li style="margin:1px 0">${f}</li>`).join("")}</ul>`);
+  if (r.sprint.objective.trim()) parts.push(`<p><b>Objectif du sprint :</b> ${mdToHtml(r.sprint.objective)}</p>`);
+  if (r.sprint.clientMilestone.trim()) parts.push(`<p><b>Échéance ${esc(acc.data!.account.clientName)} :</b> ${mdToHtml(r.sprint.clientMilestone)}</p>`);
+
+  parts.push(h3(++n, "Livrables terminés"));
+  parts.push(r.done.length ? table([["Stream", "24%"], ["Livrable"]], byStream(r.done).map((c) => [sname(c.streamId), cardCell(c)])) : `<p style="color:${MUTED}">Aucun livrable terminé.</p>`);
+
+  if (r.carried.length) {
+    parts.push(h3(++n, r.sprint.state === "DONE" && r.next ? `Livrables reportés au ${r.next.name}` : "Livrables restant à terminer"));
+    parts.push(
+      table(
+        [["Stream", "24%"], ["Livrable"], ["Alerte", "14%"]],
+        byStream(r.carried).map((c) => {
+          const l = c.alertLevelId ? acc.opt.get(c.alertLevelId) : null;
+          return [sname(c.streamId), cardCell(c), l ? `<span style="color:${pair(l.color).fg};font-weight:bold">${esc(l.label)}</span>` : ""];
+        }),
+      ),
+    );
+  }
+
+  if (r.alerts.length) {
+    parts.push(h3(++n, "Points de vigilance"));
+    parts.push(
+      table(
+        [["Niveau", "14%"], ["Stream", "20%"], ["Livrable"]],
+        r.alerts.map((c) => {
+          const l = c.alertLevelId ? acc.opt.get(c.alertLevelId) : null;
+          return [l ? `<span style="color:${pair(l.color).fg};font-weight:bold;white-space:nowrap">${esc(l.label)}</span>` : "", sname(c.streamId), cardCell(c, c.alertsNote)];
+        }),
+      ),
+    );
+  }
+
+  if (r.decisions.length) {
+    parts.push(h3(++n, "Décisions prises pendant le sprint"));
+    parts.push(table([["Date", "12%"], ["Décision"], ["Stream", "22%"]], r.decisions.map((d) => [d.decidedOn ? frDate(d.decidedOn) : "", lines(`<b>${inline(d.title)}</b>`, d.detail.trim() && mdToHtml(d.detail)), d.streamId ? sname(d.streamId) : ""])));
+  }
+
+  if (r.actionsOpen.length) {
+    parts.push(h3(++n, "Actions ouvertes"));
+    const withDue = r.actionsOpen.some((a) => a.dueDate);
+    parts.push(
+      table(
+        [["Porteur", "14%"], ["Stream", "22%"], ["Action"], ...(withDue ? ([["Échéance", "11%"]] as [string, string][]) : [])],
+        r.actionsOpen.map((a) => {
+          const owner = a.ownerId ? acc.ctc.get(a.ownerId)?.name : "";
+          return [
+            esc(partyLabel(a.party, acc)) + (owner ? `<br><span style="color:${MUTED};font-size:12px">${esc(owner)}</span>` : ""),
+            a.streamId ? sname(a.streamId) : "",
+            inline(a.title),
+            ...(withDue ? [a.dueDate ? frDate(a.dueDate) : ""] : []),
+          ];
+        }),
+      ),
+    );
+  }
+
+  if (r.next) {
+    parts.push(h3(++n, `Suite : ${r.next.name}`));
+    const bits = [
+      r.next.startDate && `Du ${frDate(r.next.startDate)} au ${frDate(r.next.endDate)}.`,
+      r.next.objective.trim() && `<b>Objectif :</b> ${mdToHtml(r.next.objective)}`,
+      r.next.clientMilestone.trim() && `<b>Échéance ${esc(acc.data!.account.clientName)} :</b> ${mdToHtml(r.next.clientMilestone)}`,
+    ];
+    parts.push(`<p>${lines(...bits) || "Le sprint suivant démarre."}</p>`);
+  }
+
+  parts.push(`<p style="margin-top:22px">N'hésitez pas à revenir vers moi pour tout complément.</p>`);
+  parts.push(`<p>Bonne journée,${signature ? `<br>${esc(signature)}` : ""}</p>`);
+  return `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1f2937;line-height:1.45;max-width:800px">\n${parts.join("\n")}\n</div>`;
+}
+
+/** Version texte du bilan de sprint (secours de la copie). */
+export function sprintReviewText(r: SprintReview, acc: AccountCtx, signature?: string): string {
+  const { pct, period } = sprintFacts(r);
+  const sn = (id: string | null) => (id ? acc.str.get(id)?.name ?? "" : "Transverse");
+  const out: string[] = ["Bonjour,", "", `Voici le bilan du ${r.sprint.name} (${period}).`, ""];
+  const done = r.sprint.state === "DONE";
+  out.push("SYNTHÈSE", `- ${r.stats.done} livrables terminés sur ${r.stats.total} (${pct} %)`, `- ${r.stats.carried} ${done ? `reportés${r.next ? ` au ${r.next.name}` : ""}` : "restant à terminer"}`, `- ${r.stats.alerts} en vigilance ou en alerte`, "");
+  const sec = (title: string, rows: string[]) => rows.length && out.push(title, ...rows, "");
+  sec("LIVRABLES TERMINÉS", r.done.map((c) => `- ${sn(c.streamId)} : #${c.ref} ${c.title}`));
+  sec(done && r.next ? `REPORTÉS AU ${r.next.name.toUpperCase()}` : "RESTANT À TERMINER", r.carried.map((c) => `- ${sn(c.streamId)} : #${c.ref} ${c.title}`));
+  sec("POINTS DE VIGILANCE", r.alerts.map((c) => `- ${sn(c.streamId)} : #${c.ref} ${c.title}${c.alertsNote.trim() ? ` (${c.alertsNote.trim().replace(/\s+/g, " ").slice(0, 200)})` : ""}`));
+  sec("DÉCISIONS PRISES", r.decisions.map((d) => `- ${d.decidedOn ? frDate(d.decidedOn) + " : " : ""}${d.title}`));
+  sec("ACTIONS OUVERTES", r.actionsOpen.map((a) => `- ${partyLabel(a.party, acc)} : ${a.title}${a.dueDate ? ` (échéance ${frDate(a.dueDate)})` : ""}`));
+  out.push("Bonne journée,", ...(signature ? [signature] : []));
+  return out.join("\n");
 }
 
 /**

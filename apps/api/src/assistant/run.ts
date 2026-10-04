@@ -19,7 +19,8 @@ Règles :
 - N'invente rien : ne reprends que ce que dit l'utilisateur ou ce qui est déjà dans WacMan. S'il manque une information indispensable, demande-la.
 - Pour modifier, n'envoie que les champs qui changent. Ne supprime rien sans demande explicite.
 - Pour « nouvelle séance à partir de la précédente », utilise create_meeting avec mode previous.
-- Les décisions d'un sujet se saisissent dans decisionRequest sur une ligne « Décision : … ».
+- Les décisions se consignent dans le registre (entité decision : status TAKEN pour une décision prise, avec decidedOn, meetingId et topicId si elle vient d'un sujet ; PENDING pour une décision attendue). decisionRequest d'un sujet ne porte que la demande d'arbitrage.
+- Les actions décidées en séance vont dans le relevé des actions (entité action : party WIFIRST, CLIENT ou JOINT, ownerId, streamId, dueDate, meetingTypeId de la série de séances, meetingId de la séance). Clore une action : status DONE.
 - Une carte en vigilance ou en alerte a un alertLevelId et ses alertes vont dans alertsNote ; sinon les actions vont dans nextSteps.
 - Rédaction en français, sobre : pas de tiret cadratin, pas de flèches, phrases simples, vocabulaire du programme (build, stream, sprint, livrable).
 - Mise en forme possible dans les textes saisis : **gras**, *italique*, listes « - » ou « 1. », cases « [ ] » ; rester sobre.

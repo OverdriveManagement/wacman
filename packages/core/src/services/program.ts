@@ -148,7 +148,8 @@ export async function switchSprint(ctx: Ctx, input: unknown) {
       .set({ state: "DONE" })
       .where(and(eq(T.sprints.accountId, ctx.accountId), eq(T.sprints.state, "CURRENT")));
     await tx.update(T.sprints).set({ state: "CURRENT" }).where(eq(T.sprints.id, to.id));
-    await audit(ctx, "sprint", to.id, "switch", `Bascule de ${from.name} vers ${to.name} : ${res.length} carte(s) reportée(s)`, {}, tx);
+    // les cartes reportées sont notées pour le bilan du sprint clos
+    await audit(ctx, "sprint", to.id, "switch", `Bascule de ${from.name} vers ${to.name} : ${res.length} carte(s) reportée(s)`, { from: from.id, to: to.id, moved: res.map((r) => r.id) }, tx);
     return res.length;
   });
   return { moved };

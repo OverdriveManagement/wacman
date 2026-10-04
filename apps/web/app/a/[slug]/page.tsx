@@ -96,6 +96,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
   const [colEdit, setColEdit] = useState<Option | "new" | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const sw = useSprintSwitch();
+  const router = useRouter();
   const isMobile = useIsMobile();
   // souris : déplacement après 6 px ; écran tactile : appui long (le défilement de la page reste possible)
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }), useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }));
@@ -160,6 +161,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
             color: s.state === "CURRENT" ? "var(--accent)" : "var(--slate)",
             menu: admin
               ? [
+                  { label: "Bilan du sprint", onClick: () => router.push(`/a/${acc.data.account.slug}/sprints/${s.id}`) },
                   { label: "Modifier le sprint", onClick: () => setSprintEdit(s) },
                   ...(s.state === "CURRENT" && sw.possible ? [{ label: "Basculer au sprint suivant", onClick: sw.ask }] : []),
                 ]
@@ -314,12 +316,18 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
               Sprint
             </AddButton>
           )}
-          {admin && sprint && (
+          {sprint && (
             <Menu
               label={`Options du ${sprint.name}`}
               items={[
-                { label: "Modifier le sprint", onClick: () => setSprintEdit(sprint) },
-                ...(sprint.state === "CURRENT" && sw.possible ? [{ label: `Basculer au ${sw.next?.name}`, onClick: sw.ask }] : []),
+                { label: `Bilan du ${sprint.name}`, onClick: () => router.push(`/a/${acc.data.account.slug}/sprints/${sprint.id}`) },
+                ...(admin
+                  ? [
+                      "sep" as const,
+                      { label: "Modifier le sprint", onClick: () => setSprintEdit(sprint) },
+                      ...(sprint.state === "CURRENT" && sw.possible ? [{ label: `Basculer au ${sw.next?.name}`, onClick: sw.ask }] : []),
+                    ]
+                  : []),
               ]}
             />
           )}

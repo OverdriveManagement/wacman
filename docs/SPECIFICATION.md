@@ -4,7 +4,7 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt.
 
-Version courante : **V1.4** (4 octobre 2026).
+Version courante : **V1.5** (4 octobre 2026).
 
 ---
 
@@ -79,6 +79,7 @@ Le kanban seul, sans bandeau ni faits marquants (ils sont dans le Program weekly
 - **Étiquette de fraîcheur** sur chaque carte : nombre de jours depuis la dernière modification du contenu (« auj. » le jour même), avec un picto et une couleur par palier. Par défaut : 🟢 vert jusqu'à 7 jours, 🟠 orange de 8 à 14 jours, 🔴 rouge au-delà ; pas d'étiquette sur les cartes terminées. Le survol donne la date exacte. Paliers (nombre, seuils, pictos, couleurs, libellés), affichage et cartes terminées réglables par un administrateur : bouton « 🕒 Fraîcheur » du kanban en mode édition, ou Paramètres du compte. Le compteur repart à zéro à chaque modification d'un texte ou d'une propriété (statut, stream, porteur, sprint, dates, avancement, niveau d'alerte), y compris par glisser vers une autre colonne ; un réordonnancement dans la même case, un archivage ou la bascule automatique de sprint ne comptent pas.
 - Bouton **Filtres** (replié par défaut) : porteur, titre ou référence, « Vigilance ou alerte », « En retard », « Sans mise à jour depuis plus de 7 j » (premier palier de fraîcheur, cartes non terminées), « Mes cartes », « Afficher les terminées » (vue par sprint).
 - Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » discret dans chaque case (au survol).
+- Menu « ⋯ » du sprint choisi : **Bilan du sprint** (4.12), pour tous ; modifier et basculer pour les administrateurs.
 - **Paramétrage en place** (administrateurs, en mode édition) : « + Sprint » à côté des onglets (le nouveau sprint s'enchaîne au dernier, même durée) et « ⋯ » du sprint choisi (modifier, basculer au sprint suivant) ; « ⋯ » d'une colonne (modifier libellé, picto, couleur, colonne « terminé », déplacer à gauche ou à droite, supprimer) et « + » en bout d'en-tête pour ajouter une colonne (ou un sprint en vue par sprint) ; « ⋯ » d'un couloir (modifier le stream, monter, descendre, retirer du kanban) et « + Ajouter un stream ».
 - **Mode d'emploi** (texte configurable, replié).
 
@@ -96,9 +97,11 @@ Le kanban seul, sans bandeau ni faits marquants (ils sont dans le Program weekly
 Chaque **type de séance** (configurable) assemble un ou plusieurs blocs :
 - **Faits marquants** : titre, picto, stream, type, détail ; ordre réglable.
 - **Statut des streams** : une ligne par stream avec un ou plusieurs statuts, avancement, alertes et prérequis ; libellés des colonnes propres au type (« Statut COPROJ LP », « Alertes & prérequis LP »…).
-- **Sujets** : picto, sujet, thématique, nature, description, arbitrage ou décision demandée (les décisions s'y saisissent sur une ligne « Décision : … »), ordre de passage.
+- **Sujets** : picto, sujet, thématique, nature, description, arbitrage ou décision demandée, ordre de passage. Le bouton ⚖️ d'un sujet consigne une décision prise dans le registre (titre du sujet, date de la séance, lien vers le sujet).
+- **Décisions** : décisions prises en séance et décisions attendues, tirées du registre commun du compte (4.10). Une décision attendue reste affichée de séance en séance jusqu'à ce qu'elle soit prise.
+- **Relevé des actions** : actions de la série de séances, tirées du relevé commun du compte (4.10). Une action ouverte est reprise d'une séance à l'autre jusqu'à sa clôture ; une action close reste affichée à la séance qui suit sa clôture, barrée.
 
-Pour La Poste : Program weekly (faits marquants), COPROJ LP (statut des streams), Strategic Committee (sujets).
+Pour La Poste : Program weekly (faits marquants, décisions), COPROJ LP (statut des streams, relevé des actions), Strategic Committee (sujets, décisions, relevé des actions). Ces blocs ont été ajoutés d'office aux types existants : relevé des actions avec le statut des streams, décisions et relevé des actions avec les sujets, décisions avec les faits marquants.
 
 Deux blocs supplémentaires, **vues à date du kanban** (non enregistrées dans la séance, toujours à jour) : **cartes en vigilance ou en alerte** et **planning des cartes par stream**. Le Program weekly les reçoit par défaut (comptes existants compris) ; tout type de séance peut les activer.
 
@@ -107,7 +110,13 @@ La page d'un type de séance montre **une séance à la fois**, la plus récente
 - **Nouvelle séance à partir de la précédente** (bouton principal) : recopie de la séance antérieure la plus proche (faits marquants recopiés à la nouvelle date ; statuts, avancement et alertes recopiés pour chaque stream ; sujets recopiés sans les lignes « Décision : … » ni ce qui les suit) ;
 - **Séance vide** : séance à la date choisie ; pour un bloc statut des streams, les streams marqués « Ligne de séance » sont créés d'office ;
 - sur la séance : Copier le CR, PDF, date modifiable, « ⋯ » (changer la date, supprimer) ; Excel de toutes les séances du type ;
-- **Copier le CR** copie un e-mail mis en forme, à coller dans Gmail ou Outlook, sur le modèle du CR COPROJ du 01/10/2026 : « Bonjour, », phrase d'introduction (type de séance et date en toutes lettres), sections numérotées en titres bleus soulignés, tableaux à en-tête bleu et lignes alternées, formule finale et prénom de l'utilisateur. Selon les blocs du type : faits marquants (type, stream, fait), cartes en vigilance ou en alerte (niveau, stream, livrable avec alertes et échéance, porteur), statut des streams en deux sections (« Vue d'ensemble » : streams regroupés par statut sur fond de couleur ; « Synthèse par stream » : stream et statut, avancement, alertes précédées du libellé du type), sujets (numéro, thématique et nature, sujet avec arbitrage demandé), notes. Le balisage des textes devient gras, italique, listes, liens. Une version texte simple accompagne la copie pour les messageries sans mise en forme ;
+- **Copier le CR** copie un e-mail mis en forme, à coller dans Gmail ou Outlook, sur le modèle du CR COPROJ du 01/10/2026 : « Bonjour, », phrase d'introduction, sections numérotées en titres bleus soulignés, tableaux à en-tête bleu et lignes alternées, formule de fin et prénom de l'utilisateur. Selon les blocs du type : faits marquants (type, stream, fait), cartes en vigilance ou en alerte (niveau, stream, livrable avec alertes et échéance, porteur), statut des streams en deux sections (« Vue d'ensemble » : streams regroupés par statut sur fond de couleur ; « Synthèse par stream » : stream et statut, avancement, alertes précédées du libellé du type), sujets (numéro, thématique et nature, sujet avec arbitrage demandé), décisions (tableau des décisions prises, puis des décisions attendues), relevé des actions (numéro, porteur Wifirst, client ou Commun avec le nom de la personne, stream, action, échéance si renseignée ; « (fait) » ou « (abandonnée) » pour une action close), notes. Avec le bloc Décisions, les lignes « Décision : … » d'un sujet ne sont plus répétées dans l'arbitrage demandé. Le balisage des textes devient gras, italique, listes, liens. Une version texte simple accompagne la copie pour les messageries sans mise en forme ;
+- **E-mail** (menu ✉️ à côté de Copier le CR) : copie le compte rendu puis ouvre un nouveau message Gmail avec l'objet, les destinataires et le compte d'envoi du type de séance (il reste à coller le compte rendu), ou un nouveau message dans la messagerie de l'ordinateur ; « Copier l'objet ». Objet, destinataires (À, Cc), compte Gmail d'envoi, introduction et formule de fin se règlent dans le type de séance (rubrique « E-mail du compte rendu »), avec les variables {type}, {date}, {date_longue}, {compte} et {client}. Pour le COPROJ LP : objet « WIFIRST / PSTNG : CR COPROJ du JJ/MM/AAAA », destinataires et introduction repris de l'envoi du 03/10/2026 ;
+- **Quoi de neuf depuis le JJ/MM** (panneau repliable en tête de séance) : ce qui a changé depuis la séance précédente du même type (à défaut, sur 7 jours), d'après le journal : livrables terminés, nouveaux livrables, passés en vigilance ou en alerte, sortis d'alerte, changements de statut, échéances modifiées, météo des streams (statut changé d'une séance à l'autre), actions closes et nouvelles, décisions, bascule de sprint. Un clic sur un livrable ouvre la carte ;
+- **✨ Proposer** (bloc faits marquants, éditeurs) : Claude rédige 3 à 6 faits marquants à partir de « Quoi de neuf » et des cartes en alerte ; on décoche, corrige (titre, détail, type, stream) puis on ajoute à la séance. Rien n'est enregistré sans validation ;
+- **📝 Importer un CR** (bloc relevé des actions, éditeurs) : import d'un compte rendu d'atelier rattaché à la série et à la séance affichées (4.13) ;
+- **Exporter la séance affichée (PowerPoint)** (menu du type de séance) : ouvre l'export avec la séance et le modèle du type présélectionnés (COPROJ ou Program weekly) ;
+- le PDF (vue d'impression) contient aussi les décisions et le relevé des actions ;
 - « ⋯ » du type de séance (administrateurs) : modifier ce type (nom, picto, fréquence, blocs, libellés, cadrage, mode d'emploi), créer un nouveau type. Un « + » à côté de « Program Management » dans le menu crée aussi un type de séance.
 
 **Program weekly**, de haut en bas :
@@ -128,7 +137,7 @@ Liste filtrable (type, stream, éléments clos masqués par défaut), triée par
 ### 4.5 Gouvernance
 - **Comitologie** : introduction, tableau interne (en-tête bleu pétrole) et tableau conjoint avec le client (en-tête ocre) : instance, finalité, participants, fréquence, support ou piloté par. Édition en place, ajout, ordre, suppression (administrateurs).
 - **Streams et interlocuteurs** : streams marqués « Annuaire », leader et prescripteur client ; crayon pour modifier un stream, « Ajouter un stream » (administrateurs).
-- **Sprints** : méthodologie, tableau des sprints (dates, état, échéance client, objectif), crayon pour modifier ou supprimer un sprint, **Nouveau sprint** et **Basculer au sprint suivant** : le sprint en cours passe à Terminé, le suivant à En cours, et les cartes non terminées sont reportées.
+- **Sprints** : méthodologie, tableau des sprints (dates, état, échéance client, objectif, lien « Bilan »), crayon pour modifier ou supprimer un sprint, **Nouveau sprint** et **Basculer au sprint suivant** : le sprint en cours passe à Terminé, le suivant à En cours, les cartes non terminées sont reportées, puis le bilan du sprint terminé s'affiche (4.12).
 
 ### 4.6 Journal
 Toutes les modifications du compte, filtrables par type d'élément.
@@ -145,9 +154,46 @@ Chaque zone de texte multi-ligne (cellule éditable au clic, fiche d'une carte, 
 Un bouton appliqué deux fois retire la mise en forme. Entrée prolonge une liste (puce, numéro, case) et une ligne de liste vide la termine. En lecture, les cases à cocher se cochent d'un clic. Le texte reste stocké en balisage léger (lisible tel quel) et repris dans le compte rendu copié, le PDF, Excel et PowerPoint. Ctrl+Entrée ou un clic à l'extérieur enregistre, Échap annule.
 
 ### 4.9 Exports
-- **PowerPoint** au gabarit Wifirst (16:9, titres Hind Madurai gras bleu pétrole, corps Inter, palette du deck Program weekly) : couverture ; faits marquants de la séance choisie ; cartes en vigilance ou en alerte ; livrables du sprint, une slide par stream (pastille d'alerte, statut, porteur, échéance, point d'avancement ou alerte) ; **planning des livrables** (Gantt par stream, mêmes couleurs que l'écran, ligne Aujourd'hui) ; statut des streams ; sujets du comité. La mise en forme des textes (gras, italique, souligné, barré, surligné, puces, cases) est reprise. Les tableaux longs se répartissent sur plusieurs slides sans couper une ligne. Choix du sprint, des sections et de la séance de chaque type.
+- **PowerPoint** au gabarit Wifirst (16:9, titres Hind Madurai gras bleu pétrole, chapô Inter 8 pt, intertitres Inter ExtraBold bleus avec filet, cartes sur fond gris clair, mention de confidentialité), sur le modèle des decks Program weekly du 28/09 et COPROJ LP du 01/10/2026. **Modèles** : Program weekly (couverture, livrables du sprint, faits marquants, actions en cours des streams, focus stream, ce que nous attendons du client, cartes en vigilance ou en alerte, relevé des actions, planning), COPROJ (couverture, avancement des streams en cartes, sujets, registre des décisions, relevé des actions, attentes du client), Bilan de sprint, ou Personnalisé. Slides disponibles :
+  - **Les livrables du sprint** : deux streams par slide, une carte par livrable (titre, description ou alerte, échéance, statut, porteur, pastille Vigilance ou Alerte, liseré de couleur) ;
+  - livrables du sprint au format compact, une slide par stream ;
+  - **Faits marquants de la semaine** des séances retenues ;
+  - **Actions en cours des streams** : une tuile par stream avec sa météo (Au planning, Non commencé, Vigilance, Risque, Alerte, déduite des alertes des cartes et des risques ouverts), les livrables en cours et leur échéance ;
+  - **Focus stream** : une slide par stream choisi (tous les streams du sprint si aucun) : météo, alertes, avancement, risques et blocages, prochaines étapes, décisions attendues ;
+  - **Ce que nous attendons de <client>** : actions ouvertes portées par le client et décisions attendues, par stream et par échéance ;
+  - **Avancement des streams Wifirst, alertes et prérequis** (COPROJ) : légende des statuts, une carte par stream (statut en capitales, avancement, alertes et prérequis), la ligne Gouvernance en bandeau de pied de slide ;
+  - statut des streams en tableau ; sujets du comité (sans les lignes de décision quand le registre est actif) ;
+  - cartes en vigilance ou en alerte ; **registre des décisions** et **relevé des actions** de chaque séance retenue (à défaut : décisions attendues et prises sur 30 jours, actions ouvertes) ;
+  - **bilan du sprint** ; **planning des livrables** (Gantt par stream, mêmes couleurs que l'écran, ligne Aujourd'hui).
+  La mise en forme des textes (gras, italique, souligné, barré, surligné, puces, cases) est reprise. Les tableaux longs se répartissent sur plusieurs slides sans couper une ligne. Choix du sprint, du modèle, des sections, des streams du focus et de la séance de chaque type. Le nom du fichier reprend le modèle.
 - **Excel** : cartes (d'un sprint ou de tous, avec début prévu et échéance), séances d'un type (un onglet par bloc).
 - **Sauvegarde JSON** complète du compte (super-administrateur), réimportable.
+
+### 4.10 Actions & décisions
+Page du menu Program Management, qui rassemble pour tout le compte :
+- le **relevé des actions** : intitulé, porteur (Wifirst, client ou Commun), personne (contact de l'annuaire), stream, série de séances, échéance (en rouge si dépassée), état (ouverte, faite, abandonnée, avec la date de clôture). Case à cocher pour marquer une action faite, menu pour l'abandonner, la rouvrir ou la supprimer ; ajout rapide (intitulé puis Entrée) ;
+- le **registre des décisions** : statut (attendue ou prise), intitulé, précisions, stream, instance, date de la décision ou date attendue ; lien éventuel vers le sujet de séance d'origine.
+Filtres : recherche, statut, porteur, stream, série de séances. Bouton « Importer un CR d'atelier » (4.13). Les mêmes listes s'éditent dans les séances (4.3), la revue de stream (4.11) et par l'assistant.
+
+### 4.11 Revue de stream
+Support de l'heure hebdomadaire avec chaque stream leader (menu « Revue de stream ») :
+- choix du stream (liste et flèches), leader et prescripteur ; chiffres : livrables, terminés, en vigilance ou alerte, actions ouvertes, cartes sans mise à jour depuis le dernier palier de fraîcheur ;
+- dernier statut saisi en séance (statuts, avancement, alertes et prérequis, lien vers la séance) et statut précédent ;
+- décisions attendues et décisions prises sur 30 jours ; livrables regroupés par statut avec alerte, échéance, porteur et étiquette de fraîcheur (option « Avancement et prochaines étapes ») ; actions du stream, modifiables ; risques ouverts ; faits marquants récents ; activité des 14 derniers jours (une ligne par carte et par type de modification) ;
+- **Présenter** : plein écran sans menu, texte agrandi ; flèches gauche et droite pour passer d'un stream à l'autre, Échap pour quitter. L'adresse de la page suit le stream affiché.
+
+### 4.12 Bilan de sprint
+Page d'un sprint (lien « Bilan » de la Gouvernance, menu du sprint dans le kanban, affichage automatique après une bascule) :
+- période, objectif et échéance client ; chiffres : livrables au périmètre, terminés (et pourcentage), reportés au sprint suivant (sprint terminé) ou restant à terminer (sprint en cours), en vigilance ou alerte, décisions prises et actions closes ;
+- livrables terminés et reportés, par stream ; points de vigilance avec leurs alertes ; décisions prises pendant le sprint ; actions closes et ouvertes ; faits marquants de la période ; lien vers le sprint suivant ;
+- **Copier l'e-mail** : bilan mis en forme comme le compte rendu de séance (synthèse, livrables terminés, reportés, points de vigilance, décisions, actions ouvertes, suite) ; nouveau message Gmail, copie de l'objet ; **diapositive PowerPoint** du bilan.
+Pour un sprint terminé, la liste des cartes reportées est celle enregistrée au moment de la bascule.
+
+### 4.13 Import d'un compte rendu d'atelier
+Depuis la page Actions & décisions ou le relevé des actions d'une séance (éditeurs) :
+1. coller le compte rendu ou la transcription, ou déposer un fichier Word (.docx), texte (.txt, .md) ou sous-titres de visio (.vtt, .srt) ; préciser l'atelier, la date, le stream principal et la série de séances à laquelle rattacher les actions ;
+2. « Analyser avec Claude » : Claude propose des actions (porteur, personne, stream, échéance), des livrables (nouvelles cartes) et des décisions (prises ou attendues), chacune avec le passage du texte qui la justifie ; les noms de stream et de personne sont rapprochés de ceux du compte ;
+3. chaque proposition se corrige puis se crée ou s'ignore **une par une** (ou « Créer les N restantes ») ; les cartes vont dans le sprint et le statut choisis. L'origine (« Atelier … du JJ/MM/AAAA ») est notée sur l'action ou la décision. Rien n'est créé sans validation.
 
 ## 5. Sections Finance management et Provisioning management
 Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Paramètres du compte, Général).
@@ -157,7 +203,7 @@ Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Par
 - **Streams** : picto, nom, leader, prescripteur, ordre, actif, Kanban (couloir), Ligne de séance (créée d'office), Annuaire.
 - **Sprints** : nom, dates, état, échéance client, objectif, ordre.
 - **Listes de valeurs** (picto, libellé, couleur, ordre) : colonnes du kanban (avec la colonne « Terminé »), niveaux de vigilance / alerte, types de faits marquants, statuts des streams, thématiques et natures des sujets, types, statuts (avec « Clos ») et criticités des risques. Une valeur encore utilisée par des cartes ne peut pas être supprimée.
-- **Types de séance** : nom, picto, fréquence, blocs, libellés de colonnes, cadrage, mode d'emploi, visibilité.
+- **Types de séance** : nom, picto, fréquence, blocs, libellés de colonnes, cadrage, mode d'emploi, visibilité, e-mail du compte rendu (objet, compte Gmail d'envoi, À, Cc, introduction, formule de fin).
 - **Annuaire** : contacts du compte (porteurs, auteurs), reliés automatiquement à un utilisateur de même e-mail ; un contact n'a pas besoin d'accès.
 - **Accès** : membres et rôles.
 - **Données** : exports. La sauvegarde complète du compte (super-administrateur) contient aussi les commentaires et l'état actif des types de séance ; la réimporter restitue le compte à l'identique.
@@ -170,6 +216,8 @@ Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Par
 - Modèle par défaut : Claude Sonnet 5.5 (variable ANTHROPIC_MODEL). Facturation à l'usage sur la clé API Anthropic du compte Overdrive Management.
 - Outils supplémentaires en V1.1 : recherche insensible aux accents et lecture des indicateurs du tableau de bord.
 - Fiabilité : une erreur d'affichage dans le panneau n'emporte plus la page (zone isolée, bouton Réessayer) ; la connexion est maintenue pendant les traitements longs.
+- V1.5 : l'assistant consigne les décisions dans le registre (prises ou attendues, avec la séance ou le sujet) et les actions dans le relevé (porteur, personne, stream, échéance, série de séances ; clôture en passant l'action à faite).
+- Propositions ponctuelles de Claude, hors du panneau : extraction d'un compte rendu d'atelier (4.13) et brouillon de faits marquants (4.3). Elles passent par un outil à format imposé, sont réservées aux éditeurs connectés dans le navigateur (pas par jeton d'accès), limitées à 30 par heure et par utilisateur, et rien n'est enregistré sans validation.
 
 ### 7.1 Connecteur Claude (serveur MCP)
 WacMan expose ses données à Claude hors de l'application (claude.ai, Claude Desktop, Claude Code) par un serveur MCP (Model Context Protocol), avec les mêmes outils que l'assistant intégré, plus `list_accounts`. Chaque outil prend en paramètre le compte client concerné.
@@ -183,6 +231,7 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 - Import par l'administration (rubrique Import) ou en ligne de commande. Si le compte existe, son contenu est remplacé et les accès conservés.
 - V1 (import de développement du 03/10/2026) : 10 streams, 4 sprints, 7 contacts, 29 cartes (la carte vide Réf. 37 est ignorée), 6 séances (2 Program weekly, 2 COPROJ LP, 2 Strategic Committee), 6 faits marquants, 13 statuts de streams (la ligne vide du 25/09 est ignorée), 11 sujets, 18 risques et arbitrages, 10 instances de comitologie.
 - Un nouvel import sera fait juste avant la mise en service.
+- Relevé et registre (V1.5) : les 7 actions du COPROJ LP du 01/10/2026 (compte rendu envoyé le 03/10/2026) sont reprises dans le relevé, et les décisions déjà écrites dans les sujets (ligne « Décision : … ») dans le registre, datées de leur séance et reliées au sujet (4 décisions du Strategic Committee du 29/09). La sauvegarde complète du compte contient les actions et les décisions.
 - Fraîcheur : la date « Mis à jour » de chaque livrable Notion devient la date de dernière modification du contenu de la carte (import et script). Pour le compte La Poste déjà en service, les dates relevées dans Notion le 04/10/2026 ont été appliquées par Réf. ; une modification faite dans WacMan depuis l'import l'emporte si elle est plus récente.
 
 ## 9. Robustesse
@@ -194,7 +243,7 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 - Les données envoyées sont contrôlées côté serveur : dates réelles (pas de 30 février), début de sprint avant sa fin, une seule séance d'un type par date (y compris en changeant la date), un seul sprint en cours à la fois, statut de carte pris dans les colonnes du kanban, utilisateur relié à un contact ayant accès au compte ; une valeur mal formée renvoie un message clair et jamais une erreur interne.
 - Supprimer un statut de stream le retire des séances qui le portaient. Une séance recopiée depuis la précédente ne reprend pas les streams désactivés et ajoute les streams du modèle créés entre-temps.
 - Les erreurs techniques ne sont jamais renvoyées en détail à l'assistant ni au connecteur Claude. « Arrêter » l'assistant stoppe aussi les actions qu'il n'a pas encore lancées.
-- Les références saisies (statut, niveau d'alerte, type, criticité…) sont contrôlées : identifiant valide, appartenant au compte et pris dans la bonne liste de valeurs.
+- Les références saisies (statut, niveau d'alerte, type, criticité…) sont contrôlées : identifiant valide, appartenant au compte et pris dans la bonne liste de valeurs. Une action ou une décision ne peut viser qu'un stream, un contact, une carte, un sujet, une séance ou une série du même compte ; la date de clôture d'une action est tenue par le serveur.
 - Mise en forme : les mêmes règles s'appliquent à l'écran, au compte rendu copié, au PDF, à Excel et à PowerPoint (gras dans l'italique et inversement, adresses avec parenthèses ; « 2*x + 3*y » ou « nom__de__fichier » restent du texte). PowerPoint conserve désormais gras, italique, souligné, surligné et cases à cocher.
 - Application installable sur mobile et ordinateur (icône WacMan, ouverture plein écran).
 
@@ -224,3 +273,4 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 | 04/10/2026 | Étiquette sur les cartes du kanban : nombre de jours depuis la dernière modification du contenu, couleur et picto selon l'ancienneté, paramétrable par l'administrateur (par défaut 7 jours, 14 jours, plus ancien) ; reprendre les dates de dernière modification des cartes La Poste depuis Notion | Étiquette de fraîcheur, filtre « Sans mise à jour », paliers réglables depuis le kanban et les paramètres (4.1, 4.2, 6) ; date de modification du contenu suivie à part du simple réordonnancement ; dates Notion appliquées au compte La Poste ; colonne « Contenu modifié le » dans l'export Excel (8) |
 | 04/10/2026 | Améliorer « Copier le CR » pour retrouver la mise en forme du CR envoyé dans Gmail pour le COPROJ LP (la copie actuelle est sans mise en forme) | Copie en texte enrichi reprenant la présentation de l'e-mail du 03/10/2026 (titres numérotés, tableaux à en-tête bleu, statuts colorés), pour tous les types de séance, avec la version texte en secours (4.3) |
 | 04/10/2026 | Faire un tour général de tout ce qui a été développé, tout re-tester et corriger les bugs dans la foulée | V1.4 : revue de code complète (API, écrans, exports) et environ 40 correctifs ; 8 suites de tests rejouées, dont 2 nouvelles (correctifs API, tour de tous les écrans en sombre, clair, mobile et lecteur). Sécurité : jeton en lecture seule sans aucune écriture, jeton court de l'assistant limité à l'assistant, essais de code comptés avant vérification, limite de connexion par e-mail, retour après connexion limité au site, aucun code de connexion dans les journaux en production. Données : sauvegarde complète avec commentaires, statuts supprimés retirés des séances, séance recopiée alignée sur les streams actifs, contrôles de dates et de références. Écrans : glisser tactile du kanban et du planning, date validée en une fois, double envoi impossible, clics rapides pris en compte, Échap sur la seule fenêtre du dessus, carte archivée retirée, carte créée depuis « Sans sprint » sans sprint, ouverture d'une carte au clavier, titres longs coupés, sélecteur de séance lisible sur mobile, compteur « à échéance sous 15 jours » exact. Mise en forme : règles uniques partagées par l'écran et les exports, PowerPoint mis en forme, barre d'outils corrigée (gras et italique combinés, listes sur ligne vide, Ctrl+K sans ouvrir la recherche), « Copier le CR » attend la fin d'une saisie en cours (2, 6, 9) |
+| 04/10/2026 | Faire A (1 à 4), puis B (6, 7, 9), puis D (15) de la liste d'évolutions proposée ; garder le reste en mémoire pour plus tard | V1.5 : exports PowerPoint au format des decks Program weekly et COPROJ (livrables du sprint, météo des streams, focus stream, attentes du client, avancement des streams en cartes, registre des décisions, relevé des actions, bilan de sprint ; modèles d'export) (4.9) ; relevé des actions et registre des décisions communs au compte, blocs de séance et page Actions & décisions, actions ouvertes reprises de séance en séance (4.3, 4.10) ; e-mail complet du compte rendu (objet, destinataires, introduction, formule de fin par type, ouverture de Gmail) (4.3, 6) ; « Quoi de neuf depuis la dernière séance » et faits marquants proposés par Claude (4.3) ; revue de stream avec mode présentation (4.11) ; bilan de sprint, e-mail et diapositive, affiché après la bascule (4.12) ; import d'un compte rendu d'atelier avec validation une par une (4.13) ; reprise des actions du COPROJ du 01/10, des décisions des sujets et des réglages d'e-mail du COPROJ (8) |

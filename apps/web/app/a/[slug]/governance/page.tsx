@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { api } from "@/lib/api";
 import { frDate } from "@/lib/format";
@@ -204,7 +205,12 @@ export default function GovernancePage() {
             <tbody>
               {sprints.map((sp) => (
                 <tr key={sp.id}>
-                  <td className="font-semibold text-ink">{sp.name}</td>
+                  <td className="font-semibold text-ink">
+                    {sp.name}
+                    <Link href={`/a/${acc.data.account.slug}/sprints/${sp.id}`} className="ml-2 whitespace-nowrap text-xs font-semibold text-accent hover:underline">
+                      Bilan
+                    </Link>
+                  </td>
                   <td className="whitespace-nowrap">
                     {frDate(sp.startDate)} au {frDate(sp.endDate)}
                   </td>

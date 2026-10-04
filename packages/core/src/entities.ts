@@ -290,6 +290,53 @@ export const ENTITIES = {
       cardIds: z.array(z.string()).optional(),
     }),
   },
+  action: {
+    model: "action",
+    label: "Action",
+    parent: "account",
+    editRole: "EDITOR",
+    titleField: "title",
+    dateFields: ["dueDate"],
+    orderBy: [["order", "asc"], ["createdAt", "asc"]],
+    description:
+      "Action du relevé des actions : intitulé (title), note, côté porteur (party : WIFIRST, CLIENT ou JOINT), porteur nominatif (ownerId, contact), stream, livrable lié (cardId), série de séances où elle est suivie (meetingTypeId), séance où elle a été prise (meetingId), échéance (dueDate), statut (status : OPEN, DONE, CANCELLED). Une action ouverte reste affichée de séance en séance jusqu'à sa clôture.",
+    create: z.object({
+      title: str.min(1),
+      note: optStr,
+      party: z.enum(T.ACTION_PARTIES).optional(),
+      ownerId: idOrNull,
+      streamId: idOrNull,
+      cardId: idOrNull,
+      meetingTypeId: idOrNull,
+      meetingId: idOrNull,
+      dueDate: dateStr,
+      status: z.enum(T.ACTION_STATUSES).optional(),
+      order: z.number().optional(),
+    }),
+  },
+  decision: {
+    model: "decision",
+    label: "Décision",
+    parent: "account",
+    editRole: "EDITOR",
+    titleField: "title",
+    dateFields: ["decidedOn"],
+    orderBy: [["decidedOn", "desc"], ["createdAt", "desc"]],
+    description:
+      "Décision du registre : intitulé (title), précisions (detail), statut (status : PENDING = décision attendue, TAKEN = décision prise), date (decidedOn), stream, livrable lié (cardId), sujet de séance lié (topicId), série de séances (meetingTypeId), séance (meetingId).",
+    create: z.object({
+      title: str.min(1),
+      detail: optStr,
+      status: z.enum(T.DECISION_STATUSES).optional(),
+      decidedOn: dateStr,
+      streamId: idOrNull,
+      cardId: idOrNull,
+      topicId: idOrNull,
+      meetingTypeId: idOrNull,
+      meetingId: idOrNull,
+      order: z.number().optional(),
+    }),
+  },
 } satisfies Record<string, EntityDef>;
 
 export type EntityName = keyof typeof ENTITIES;
@@ -310,6 +357,8 @@ export const TABLES: Record<string, AnyTable> = {
   streamStatus: T.streamStatuses,
   topic: T.topics,
   risk: T.risks,
+  action: T.actions,
+  decision: T.decisions,
 } as Record<string, AnyTable>;
 
 export function getEntity(name: string): EntityDef {
@@ -370,6 +419,8 @@ async function checkRefs(ctx: Ctx, data: Record<string, unknown>, model?: string
     ["authorId", "contact"],
     ["meetingId", "meeting"],
     ["meetingTypeId", "meetingType"],
+    ["cardId", "card"],
+    ["topicId", "topic"],
     ["statusId", "option"],
     ["alertLevelId", "option"],
     ["typeId", "option"],
@@ -464,6 +515,7 @@ export async function createEntity(ctx: Ctx, name: string, input: unknown) {
   const data = dedupeArrays({ ...(parsed.data as Record<string, unknown>) });
   if (def.model === "card") checkCardDates(data);
   if (def.model === "sprint") checkSprintDates(data);
+  if (def.model === "action" && data.status && data.status !== "OPEN") data.closedAt = new Date();
   await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
@@ -516,6 +568,8 @@ export async function updateEntity(ctx: Ctx, name: string, id: string, input: un
   if (name === "meeting") delete data.meetingTypeId;
   if (def.model === "card") checkCardDates({ ...before, ...data });
   if (def.model === "sprint") checkSprintDates({ ...before, ...data });
+  // action close ou rouverte : date de clôture tenue à jour
+  if (def.model === "action" && data.status && data.status !== before.status) data.closedAt = data.status === "OPEN" ? null : new Date();
   if (name === "meeting" && typeof data.date === "string" && data.date !== before.date) {
     const [clash] = await db
       .select({ id: T.meetings.id })

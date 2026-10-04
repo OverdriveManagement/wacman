@@ -8,6 +8,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useRouter } from "next/navigation";
 import { api, toast } from "@/lib/api";
 import { COLORS, tone } from "@/lib/format";
 import type { Option, OptionKind, Sprint, Stream } from "@/lib/types";
@@ -222,6 +223,7 @@ export function SprintModal({ item, onClose, onSaved }: { item: Sprint | "new" |
 /** Bascule du sprint en cours vers le suivant (cartes non terminées reportées). */
 export function useSprintSwitch() {
   const acc = useAcc();
+  const router = useRouter();
   const confirm = useConfirm();
   const sprints = [...acc.data.sprints].sort((a, b) => a.order - b.order);
   const current = sprints.find((x) => x.state === "CURRENT");
@@ -230,8 +232,9 @@ export function useSprintSwitch() {
     if (!current || !next) return;
     confirm.ask("Basculer au sprint suivant", `${current.name} passe à Terminé, ${next.name} à En cours, et les cartes non terminées de ${current.name} sont reportées dans ${next.name}.`, async () => {
       const r = await api<{ moved: number }>(`${acc.base}/sprints/switch`, { method: "POST", json: { fromSprintId: current.id, toSprintId: next.id } });
-      toast("success", `${r.moved} carte(s) reportée(s) dans ${next.name}.`);
+      toast("success", `${r.moved} carte(s) reportée(s) dans ${next.name}. Voici le bilan du ${current.name}.`);
       await acc.mutate();
+      router.push(`/a/${acc.data.account.slug}/sprints/${current.id}`);
     });
   };
   return { current, next, ask, node: confirm.node, possible: !!(current && next) };

@@ -1,7 +1,8 @@
-import { longDate } from "./format";
+import { frDate, longDate } from "./format";
 import { markupToPlain } from "./markup";
 import type { AccountCtx } from "./hooks";
-import type { Meeting, MeetingType } from "./types";
+import type { Action, Decision, Meeting, MeetingType } from "./types";
+import { partyLabel, stripDecisions } from "./followup";
 
 /** Texte brut (sans balisage) d'un contenu saisi : mise en forme retirée, liens écrits en clair, cases lisibles. */
 export function plainText(s: string | null | undefined): string {
@@ -18,7 +19,7 @@ const indent = (s: string, pad = "  ") =>
  * Compte rendu d'une séance au format texte, prêt à coller dans un e-mail.
  * Rédaction sobre : pas de tiret cadratin, pas de flèche, pas de point médian.
  */
-export function meetingReportText(meeting: Meeting, type: MeetingType, acc: AccountCtx): string {
+export function meetingReportText(meeting: Meeting, type: MeetingType, acc: AccountCtx, opts: { actions?: Action[]; decisions?: { pending: Decision[]; taken: Decision[] } } = {}): string {
   const a = acc.data!.account;
   const out: string[] = [];
   out.push(`${type.name} du ${longDate(meeting.date)}`);
@@ -59,7 +60,31 @@ export function meetingReportText(meeting: Meeting, type: MeetingType, acc: Acco
       const tags = [t.themeId ? acc.opt.get(t.themeId)?.label : "", t.natureId ? acc.opt.get(t.natureId)?.label : ""].filter(Boolean).join(", ");
       out.push(`${i + 1}. ${plainText(t.title)}${tags ? ` (${tags})` : ""}`);
       if (t.description.trim()) out.push(indent(t.description, "   "));
-      if (t.decisionRequest.trim()) out.push(`   ${type.settings?.decisionLabel || "Arbitrage demandé"} :\n${indent(t.decisionRequest, "     ")}`);
+      const req = type.blocks.includes("DECISIONS") ? stripDecisions(t.decisionRequest) : t.decisionRequest;
+      if (req.trim()) out.push(`   ${type.settings?.decisionLabel || "Arbitrage demandé"} :\n${indent(req, "     ")}`);
+    });
+    out.push("");
+  }
+
+  if (type.blocks.includes("DECISIONS") && opts.decisions && (opts.decisions.taken.length || opts.decisions.pending.length)) {
+    out.push("DÉCISIONS");
+    for (const d of opts.decisions.taken) {
+      out.push(`- ${d.decidedOn ? frDate(d.decidedOn) + " : " : ""}${plainText(d.title)}`);
+      if (d.detail.trim()) out.push(indent(d.detail, "    "));
+    }
+    if (opts.decisions.pending.length) {
+      out.push("Décisions attendues :");
+      for (const d of opts.decisions.pending) out.push(`- ${plainText(d.title)}${d.decidedOn ? ` (pour le ${frDate(d.decidedOn)})` : ""}`);
+    }
+    out.push("");
+  }
+
+  if (type.blocks.includes("ACTIONS") && opts.actions?.length) {
+    out.push("RELEVÉ DES ACTIONS");
+    opts.actions.forEach((x, i) => {
+      const stream = x.streamId ? acc.str.get(x.streamId)?.name : "";
+      const state = x.status === "DONE" ? " (fait)" : x.status === "CANCELLED" ? " (abandonnée)" : "";
+      out.push(`${i + 1}. [${partyLabel(x.party, acc)}${stream ? `, ${stream}` : ""}] ${plainText(x.title)}${x.dueDate ? ` (échéance ${frDate(x.dueDate)})` : ""}${state}`);
     });
     out.push("");
   }
