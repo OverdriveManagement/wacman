@@ -131,7 +131,7 @@ for r in sorted(livs, key=lambda r:int(r['Réf.'])):
     cards.append({'ref':ref,'title':r['Livrable'].strip(),'emoji':'','description':txt(r.get('Description')),'progressNote':txt(r.get("Point d'avancement")),
         'nextSteps':txt(r.get('Prochaines étapes')),'alertsNote':txt(r.get('Alertes / arbitrages')),'dueDate':r.get('date:Échéance:start'),
         'stream':skey.get(r.get('Stream')),'sprint':spkey.get(pid(sp[0])) if sp else None,'status':STATUS.get(r.get('Statut')),
-        'alertLevel':ALERT.get(r.get('Vigilance / Alerte')),'owner':owner(r.get('Porteur')),'position':ref,'updatedAt':r.get('Mis à jour')})
+        'alertLevel':ALERT.get(r.get('Vigilance / Alerte')),'owner':owner(r.get('Porteur')),'position':ref,'updatedAt':r.get('Mis à jour'),'contentUpdatedAt':r.get('Mis à jour')})
 
 # ------------------------------------------------------------------ meeting types
 meetingTypes=[

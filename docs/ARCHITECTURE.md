@@ -29,7 +29,7 @@ Navigateur ──► Vercel (Paris, cdg1)                 Railway (Amsterdam, eu
 ## Modèle de données (packages/core/src/schema.ts)
 
 - `users`, `login_challenges` (codes e-mail hachés ; `purpose` LOGIN ou RESET pour le mot de passe oublié), `memberships` (rôle par compte), `api_tokens` (jetons d'accès personnels : hachage SHA-256, préfixe affiché, lecture seule, expiration, révocation, dernière utilisation).
-- `cards` : livrables, avec `start_date` (début prévu) et `due_date` (échéance) pour le planning.
+- `cards` : livrables, avec `start_date` (début prévu) et `due_date` (échéance) pour le planning, et `content_updated_at` (dernière modification du contenu, mise à jour par `updateEntity` quand un champ autre que `position` ou `archived` change vraiment, et par `moveCard` quand le statut ou le stream change ; sert à l'étiquette de fraîcheur). Les paliers de fraîcheur sont dans `accounts.settings.freshness` (validés par `freshnessSchema`).
 - `accounts` : compte client, sections actives (`modules`), textes et libellés (`settings`), compteur des références de cartes.
 - Configuration par compte : `options` (listes de valeurs, par `kind`), `streams`, `sprints`, `meeting_types` (blocs et libellés), `governance_bodies`, `contacts`.
 - Contenu : `cards`, `meetings`, `highlights`, `stream_statuses`, `topics`, `risks` (+ `risk_cards`).
@@ -74,12 +74,15 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 - Liens directs : `?card=` (kanban), `?risk=` (risques), `?m=` (séance) ; ouverts une fois puis retirés de l'adresse.
 - Vue d'impression `app/print/[slug]/meeting/[id]` hors de la mise en page du compte ; manifeste `app/manifest.ts` et icônes dans `public/`.
 - Paramétrage en place : `components/config.tsx` (menu « ⋯ » rendu en portail pour ne pas être rogné par les zones défilantes, fenêtres Sprint, Stream, Valeur de liste, bascule de sprint), `components/MeetingTypeModal.tsx`, `OptionSelect` avec création à la volée (`useCreators` dans `lib/hooks.ts`, selon le rôle).
+- Mode édition : `EditModeContext` et `useEditMode()` (`components/AccountContext.tsx`, vrai si administrateur et mode activé) conditionnent les boutons de structure ; `useCreators` ne propose la création de valeurs et de streams qu'en mode édition.
+- Étiquettes : `components/Tag.tsx` (`TagSelect`, `TagMulti`, `DateTag`, pastille `EmptyDot`, `Popover` rendu en portail) remplacent les listes déroulantes visibles.
+- Fraîcheur : `components/Freshness.tsx` (étiquette, éditeur et fenêtre des paliers) et `lib/freshness.ts` (jours calendaires à l'heure de Paris, palier, contrôles identiques à l'API).
 - Planning : `components/Planning.tsx` (Gantt en HTML et CSS, glisser au jour près par événements pointeur ; règles de barre partagées avec la slide PowerPoint : début prévu ou début du sprint, échéance ou fin du sprint, jalon si échéance seule).
 - Mise en forme : `components/RichText.tsx` (barre d'outils, raccourcis, prolongation des listes ; transformations pures sur le texte et la sélection) et `components/Markdown.tsx` (rendu, cases cliquables). Le balisage léger est retiré ou converti par `plain()` (API) et `plainText()` (compte rendu), et converti en segments mis en forme par `runs()` (PowerPoint).
 
 ## Migrations
 
-Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), uniquement des ajouts.
+Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), uniquement des ajouts.
 
 ## Pourquoi Drizzle plutôt que Prisma
 

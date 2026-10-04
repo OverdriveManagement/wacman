@@ -1,13 +1,15 @@
 "use client";
 
+import { FreshnessTag } from "./Freshness";
 import { useEffect, useState } from "react";
 import { api, toast } from "@/lib/api";
-import { dateTime } from "@/lib/format";
+import { dateTime, todayIso } from "@/lib/format";
 import type { Card } from "@/lib/types";
 import { useAcc } from "./AccountContext";
+import { DateTag, TagSelect } from "./Tag";
 import { useCreators } from "@/lib/hooks";
 import { Comments, History } from "./Comments";
-import { Field, InlineText, Modal, OptionSelect, Pill, useConfirm } from "./ui";
+import { Field, InlineText, Modal, Pill, useConfirm } from "./ui";
 import { IconCopy, IconTrash } from "./icons";
 
 /** Fiche d'un livrable : en-tête (statut, stream, porteur, sprint), corps, détails, commentaires et historique. */
@@ -56,19 +58,39 @@ export function CardModal({
         </div>
       }
     >
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Statut">
-          <OptionSelect disabled={ro} options={acc.byKind("CARD_STATUS")} value={c.statusId} onChange={(v) => save({ statusId: v })} placeholder="Sans statut" />
-        </Field>
-        <Field label="Stream">
-          <OptionSelect disabled={ro} options={streams} value={c.streamId} onChange={(v) => save({ streamId: v })} onCreate={create.stream} createLabel="Nouveau stream…" />
-        </Field>
-        <Field label="Porteur">
-          <OptionSelect disabled={ro} options={contacts} value={c.ownerId} onChange={(v) => save({ ownerId: v })} onCreate={create.contact} createLabel="Nouveau contact…" />
-        </Field>
-        <Field label="Sprint">
-          <OptionSelect disabled={ro} options={sprints} value={c.sprintId} onChange={(v) => save({ sprintId: v })} />
-        </Field>
+      {/* propriétés : étiquettes cliquables, sans cadre de liste */}
+      <div className="grid gap-x-8 gap-y-2.5 sm:grid-cols-2">
+        <Prop label="Statut">
+          <TagSelect label="Statut" disabled={ro} allowClear={false} options={acc.byKind("CARD_STATUS")} value={c.statusId} onChange={(v) => save({ statusId: v })} onCreate={create.option("CARD_STATUS")} createLabel="Nouvelle colonne…" />
+        </Prop>
+        <Prop label="Vigilance / Alerte">
+          <TagSelect label="Vigilance ou alerte" disabled={ro} options={acc.byKind("ALERT_LEVEL")} value={c.alertLevelId} onChange={(v) => save({ alertLevelId: v })} />
+        </Prop>
+        <Prop label="Stream">
+          <TagSelect label="Stream" variant="text" className="text-sm text-ink" disabled={ro} options={streams} value={c.streamId} onChange={(v) => save({ streamId: v })} onCreate={create.stream} createLabel="Nouveau stream…" />
+        </Prop>
+        <Prop label="Porteur">
+          <TagSelect label="Porteur" variant="text" className="text-sm text-ink" disabled={ro} options={contacts} value={c.ownerId} onChange={(v) => save({ ownerId: v })} onCreate={create.contact} createLabel="Nouveau contact…" />
+        </Prop>
+        <Prop label="Sprint">
+          <TagSelect label="Sprint" variant="text" className="text-sm text-ink" disabled={ro} options={sprints} value={c.sprintId} onChange={(v) => save({ sprintId: v })} />
+        </Prop>
+        <Prop label="Dates">
+          <span className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted">
+            <DateTag label="Début prévu" disabled={ro} value={c.startDate} max={c.dueDate} onChange={(v) => (v && c.dueDate && v > c.dueDate ? toast("error", "Le début prévu doit précéder l'échéance.") : save({ startDate: v }))} />
+            {!c.startDate && c.sprintId && !ro && <span className="text-[0.7rem]">début</span>}
+            <span>au</span>
+            <DateTag
+              label="Échéance"
+              disabled={ro}
+              value={c.dueDate}
+              min={c.startDate}
+              danger={!!c.dueDate && c.dueDate < todayIso() && !acc.isDone(c.statusId)}
+              onChange={(v) => (v && c.startDate && v < c.startDate ? toast("error", "L'échéance doit suivre le début prévu.") : save({ dueDate: v }))}
+            />
+            {!c.dueDate && !ro && <span className="text-[0.7rem]">échéance</span>}
+          </span>
+        </Prop>
       </div>
 
       <div className="mt-5 space-y-4">
@@ -81,39 +103,6 @@ export function CardModal({
         <Block label="Prochaines étapes">
           <InlineText multiline disabled={ro} value={c.nextSteps} onSave={(v) => save({ nextSteps: v })} className="text-sm text-ink-2" />
         </Block>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Field label="Vigilance / Alerte">
-            <OptionSelect disabled={ro} options={acc.byKind("ALERT_LEVEL")} value={c.alertLevelId} onChange={(v) => save({ alertLevelId: v })} placeholder="Ni vigilance ni alerte" />
-          </Field>
-          <Field label="Début prévu" hint={!c.startDate && c.sprintId ? "à défaut, début du sprint" : undefined}>
-            <input
-              className="input"
-              type="date"
-              disabled={ro}
-              value={c.startDate ?? ""}
-              max={c.dueDate ?? undefined}
-              onChange={(e) => {
-                const v = e.target.value || null;
-                if (v && c.dueDate && v > c.dueDate) return toast("error", "Le début prévu doit précéder l'échéance.");
-                save({ startDate: v });
-              }}
-            />
-          </Field>
-          <Field label="Échéance">
-            <input
-              className="input"
-              type="date"
-              disabled={ro}
-              value={c.dueDate ?? ""}
-              min={c.startDate ?? undefined}
-              onChange={(e) => {
-                const v = e.target.value || null;
-                if (v && c.startDate && v < c.startDate) return toast("error", "L'échéance doit suivre le début prévu.");
-                save({ dueDate: v });
-              }}
-            />
-          </Field>
-        </div>
         <div
           className="rounded-xl border p-3"
           style={alert ? { borderColor: `color-mix(in srgb, var(--${alert.color === "red" ? "red" : "amber"}) 45%, transparent)`, background: `color-mix(in srgb, var(--${alert.color === "red" ? "red" : "amber"}) 7%, transparent)` } : { borderColor: "var(--border-soft)" }}
@@ -152,8 +141,11 @@ export function CardModal({
             <Field label="Picto">
               <input className="input" maxLength={8} disabled={ro} defaultValue={c.emoji} onBlur={(e) => e.target.value !== c.emoji && save({ emoji: e.target.value })} placeholder="ex. 🚀" />
             </Field>
-            <Field label="Mis à jour">
-              <div className="py-2 text-sm text-ink-2">{dateTime(c.updatedAt)}</div>
+            <Field label="Contenu modifié">
+              <div className="flex items-center gap-2 py-2 text-sm text-ink-2">
+                {dateTime(c.contentUpdatedAt ?? c.updatedAt)}
+                <FreshnessTag card={c} force />
+              </div>
             </Field>
           </div>
           <div className="mt-2 text-xs text-muted">
@@ -211,6 +203,15 @@ export function CardModal({
       </div>
       {confirm.node}
     </Modal>
+  );
+}
+
+function Prop({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-[26px] items-center gap-3">
+      <span className="w-32 shrink-0 text-xs font-semibold text-muted">{label}</span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
   );
 }
 

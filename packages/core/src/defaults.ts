@@ -13,7 +13,31 @@ export interface AccountSettings {
     leader: string; // « Leader Wifirst »
     prescriber: string; // « Prescripteur La Poste »
   };
+  freshness: FreshnessSettings; // étiquette « jours depuis la dernière modification » des cartes
 }
+
+/** Paliers de fraîcheur, du plus récent au plus ancien ; le dernier palier (maxDays null) couvre le reste. */
+export interface FreshnessLevel {
+  maxDays: number | null;
+  emoji: string;
+  color: string;
+  label: string;
+}
+export interface FreshnessSettings {
+  enabled: boolean;
+  hideDone: boolean; // pas d'étiquette sur les cartes terminées
+  levels: FreshnessLevel[];
+}
+
+export const defaultFreshness: FreshnessSettings = {
+  enabled: true,
+  hideDone: true,
+  levels: [
+    { maxDays: 7, emoji: "🟢", color: "green", label: "À jour" },
+    { maxDays: 14, emoji: "🟠", color: "amber", label: "À relancer" },
+    { maxDays: null, emoji: "🔴", color: "red", label: "Ancienne" },
+  ],
+};
 
 export interface AccountModules {
   program: boolean;
@@ -40,6 +64,7 @@ export function defaultSettings(clientName: string): AccountSettings {
     sprintMethodology:
       "Le build est découpé en sprints qui se terminent sur une échéance client. Chaque sprint porte au maximum cinq à dix livrables par stream, suivis en Program weekly.",
     labels: { leader: "Leader Wifirst", prescriber: `Prescripteur ${clientName}` },
+    freshness: defaultFreshness,
   };
 }
 

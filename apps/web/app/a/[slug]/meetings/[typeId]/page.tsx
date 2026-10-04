@@ -6,18 +6,19 @@ import { useEffect, useState } from "react";
 import { api, download, fetcher, toast } from "@/lib/api";
 import { frDate, longDate, todayIso, tone } from "@/lib/format";
 import type { Card, Highlight, Meeting, MeetingType, StreamStatus, Topic } from "@/lib/types";
-import { useAcc } from "@/components/AccountContext";
+import { useAcc, useEditMode } from "@/components/AccountContext";
+import { TagMulti, TagSelect } from "@/components/Tag";
 import { useCreators, useMe } from "@/lib/hooks";
 import { Markdown } from "@/components/Markdown";
 import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pill, Spinner, useConfirm } from "@/components/ui";
 import { Comments, History } from "@/components/Comments";
-import { IconChevron, IconComment, IconCopy, IconDown, IconDownload, IconEdit, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
+import { IconChevron, IconComment, IconCopy, IconDown, IconEdit, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
 import { meetingReportText } from "@/lib/report";
 import { AlertCards } from "@/components/AlertCards";
 import { Planning } from "@/components/Planning";
 import { CardModal } from "@/components/CardModal";
 import { MeetingTypeModal } from "@/components/MeetingTypeModal";
-import { Menu, OptionModal } from "@/components/config";
+import { Menu } from "@/components/config";
 import { RichField } from "@/components/RichText";
 
 /**
@@ -42,6 +43,8 @@ export default function MeetingsPage() {
   const pathname = usePathname();
   const target = params.get("m");
   const confirm = useConfirm();
+  const editMode = useEditMode();
+  const [dateEdit, setDateEdit] = useState(false);
 
   // lien direct vers une séance (recherche, tableau de bord) : sélectionnée, puis le lien est retiré de l'adresse
   useEffect(() => {
@@ -66,31 +69,19 @@ export default function MeetingsPage() {
           </h1>
           {type.frequency && <p className="text-sm text-muted">{type.frequency}</p>}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           {acc.canEdit && stored.length > 0 && (
-            <>
-              <button className="btn btn-primary btn-sm" onClick={() => setCreating("previous")} disabled={!meetings?.length} title="Recopie la séance précédente à une nouvelle date">
-                <IconCopy /> Nouvelle séance à partir de la précédente
-              </button>
-              <button className="btn btn-sm" onClick={() => setCreating("empty")}>
-                <IconPlus /> Séance vide
-              </button>
-            </>
-          )}
-          {stored.length > 0 && (
-            <button className="btn btn-sm" onClick={() => download(`${acc.base}/export/meetings.xlsx?typeId=${type.id}`)} title="Toutes les séances de ce type, en Excel">
-              <IconDownload /> Excel
+            <button className="btn btn-primary btn-sm" onClick={() => setCreating(meetings?.length ? "previous" : "empty")}>
+              <IconPlus /> Nouvelle séance
             </button>
           )}
-          {acc.isAdmin && (
-            <Menu
-              label="Options du type de séance"
-              items={[
-                { label: "Modifier ce type de séance", onClick: () => setTypeEdit(type) },
-                { label: "Nouveau type de séance", onClick: () => setTypeEdit("new") },
-              ]}
-            />
-          )}
+          <Menu
+            label="Options"
+            items={[
+              ...(stored.length ? [{ label: "Exporter toutes les séances (Excel)", onClick: () => download(`${acc.base}/export/meetings.xlsx?typeId=${type.id}`) }] : []),
+              ...(editMode ? ["sep" as const, { label: "Modifier ce type de séance", onClick: () => setTypeEdit(type) }, { label: "Nouveau type de séance", onClick: () => setTypeEdit("new") }] : []),
+            ]}
+          />
         </div>
       </div>
       <Callout text={type.description} icon={type.emoji || "💡"} />
@@ -140,14 +131,7 @@ export default function MeetingsPage() {
                 <Menu
                   label="Options de la séance"
                   items={[
-                    {
-                      label: "Changer la date",
-                      onClick: () => {
-                        const el = document.getElementById(`date-${meeting.id}`) as HTMLInputElement | null;
-                        el?.showPicker?.();
-                        el?.focus();
-                      },
-                    },
+                    { label: "Changer la date", onClick: () => setDateEdit(true) },
                     "sep",
                     {
                       label: "Supprimer la séance",
@@ -162,22 +146,21 @@ export default function MeetingsPage() {
                   ]}
                 />
               )}
-              {acc.canEdit && (
+            </div>
+            <Modal open={dateEdit} onClose={() => setDateEdit(false)} title="Date de la séance">
+              <Field label="Nouvelle date">
                 <input
-                  id={`date-${meeting.id}`}
                   type="date"
-                  className="input !w-auto !py-1 text-xs"
-                  value={meeting.date}
+                  className="input"
+                  defaultValue={meeting.date}
                   onChange={async (e) => {
-                    if (!e.target.value) return;
+                    if (!e.target.value || e.target.value < "1900") return;
                     await api(`${acc.base}/e/meeting/${meeting.id}`, { method: "PATCH", json: { date: e.target.value } });
                     reload();
                   }}
-                  aria-label="Date de la séance"
-                  title="Date de la séance"
                 />
-              )}
-            </div>
+              </Field>
+            </Modal>
             <div className="space-y-8 p-3 md:p-4">
               {stored.includes("HIGHLIGHTS") && <HighlightsBlock meeting={meeting} reload={reload} />}
               {stored.includes("STREAM_STATUS") && <StatusBlock meeting={meeting} type={type} reload={reload} />}
@@ -242,10 +225,17 @@ function LiveTitle({ icon, title }: { icon: string; title: string }) {
   );
 }
 
-function NewMeetingModal({ type, mode, onClose, onCreated }: { type: MeetingType; mode: "empty" | "previous" | null; onClose: () => void; onCreated: (m: Meeting) => void }) {
+function NewMeetingModal({ type, mode: initial, onClose, onCreated }: { type: MeetingType; mode: "empty" | "previous" | null; onClose: () => void; onCreated: (m: Meeting) => void }) {
   const acc = useAcc();
   const [date, setDate] = useState(todayIso());
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"empty" | "previous">("previous");
+  const [seen, setSeen] = useState<string | null>(null);
+  if (initial && initial !== seen) {
+    setSeen(initial);
+    setMode(initial);
+  }
+  if (!initial && seen) setSeen(null);
   const create = async () => {
     setBusy(true);
     try {
@@ -259,9 +249,9 @@ function NewMeetingModal({ type, mode, onClose, onCreated }: { type: MeetingType
   };
   return (
     <Modal
-      open={!!mode}
+      open={!!initial}
       onClose={onClose}
-      title={mode === "previous" ? `Nouvelle séance ${type.name} à partir de la précédente` : `Nouvelle séance ${type.name}`}
+      title={`Nouvelle séance ${type.name}`}
       footer={
         <>
           <button className="btn" onClick={onClose}>
@@ -277,7 +267,15 @@ function NewMeetingModal({ type, mode, onClose, onCreated }: { type: MeetingType
         <Field label="Date de la séance">
           <input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </Field>
-        <p className="text-sm text-ink-2">
+        <div className="flex flex-col gap-2 text-sm text-ink-2">
+          <label className="flex items-center gap-2">
+            <input type="radio" name="mode" checked={mode === "previous"} onChange={() => setMode("previous")} /> À partir de la séance précédente
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="mode" checked={mode === "empty"} onChange={() => setMode("empty")} /> Séance vide
+          </label>
+        </div>
+        <p className="text-xs text-muted">
           {mode === "previous"
             ? type.blocks.includes("TOPICS")
               ? "Les sujets du comité précédent sont recopiés (picto, ordre, thématique, nature, description, arbitrage demandé) sans les lignes « Décision : … »."
@@ -314,6 +312,7 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
   const create = useCreators(acc);
   const [edit, setEdit] = useState<Highlight | "new" | null>(null);
   const [draft, setDraft] = useState("");
+  const [adding, setAdding] = useState(false);
   const ro = !acc.canEdit;
   const streams = acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }));
   const quickAdd = async () => {
@@ -323,97 +322,83 @@ function HighlightsBlock({ meeting, reload }: { meeting: Meeting; reload: () => 
     await api(`${acc.base}/e/highlight`, { method: "POST", json: { title, meetingId: meeting.id, order: meeting.highlights.length + 1, authorId: me?.id ?? null } });
     setDraft("");
     reload();
+    // on reste en saisie pour enchaîner plusieurs faits marquants
   };
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <h3 className="font-display text-base font-bold text-ink">📰 Faits marquants</h3>
-        {!ro && <span className="hidden text-xs text-muted md:inline">Cliquez sur un texte pour le modifier.</span>}
+        {!ro && !adding && (
+          <button className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={() => setAdding(true)} aria-label="Ajouter un fait marquant" title="Ajouter un fait marquant">
+            + Ajouter
+          </button>
+        )}
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {meeting.highlights.map((h, i) => {
-          const t = h.typeId ? acc.opt.get(h.typeId) : null;
-          return (
-            <article key={h.id} className="group relative flex flex-col rounded-xl border border-line-soft bg-surface-2/60 p-3.5">
-              <div className="mb-1 flex items-start gap-1.5 pr-14">
-                {h.emoji && <span className="mt-0.5 text-base">{h.emoji}</span>}
-                <InlineText disabled={ro} value={h.title} onSave={async (v) => (v.trim() ? (await patch(acc.base, "highlight", h.id, { title: v.trim() }), reload()) : toast("error", "Le titre est obligatoire."))} render={(v) => <span className="font-display text-base font-bold leading-snug text-accent">{v}</span>} className="flex-1" />
-              </div>
-              <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                {ro ? (
-                  <>
-                    {t && <Pill option={t} small />}
-                    {h.streamId && (
-                      <span className="text-xs font-semibold text-ocre">
-                        {acc.str.get(h.streamId)?.emoji} {acc.str.get(h.streamId)?.name}
-                      </span>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <select
-                      className="rounded-full border border-line-soft bg-transparent px-2 py-0.5 text-[0.7rem] font-semibold"
-                      style={t ? { color: tone[t.color], borderColor: `color-mix(in srgb, ${tone[t.color]} 40%, transparent)` } : { color: "var(--muted)" }}
-                      value={h.typeId ?? ""}
-                      onChange={async (e) => (await patch(acc.base, "highlight", h.id, { typeId: e.target.value || null }), reload())}
-                      aria-label="Type"
-                    >
-                      <option value="">Type…</option>
-                      {acc.byKind("HIGHLIGHT_TYPE").map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.emoji} {o.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select className="max-w-[12rem] truncate rounded-full border border-line-soft bg-transparent px-2 py-0.5 text-[0.7rem] font-semibold text-ocre" value={h.streamId ?? ""} onChange={async (e) => (await patch(acc.base, "highlight", h.id, { streamId: e.target.value || null }), reload())} aria-label="Stream">
-                      <option value="">Stream…</option>
-                      {streams.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.emoji} {s.label}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                )}
-              </div>
-              <InlineText multiline disabled={ro} value={h.detail} onSave={async (v) => (await patch(acc.base, "highlight", h.id, { detail: v }), reload())} className="text-sm text-ink-2" placeholder="Détail du fait marquant…" />
-              <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                {!ro && (
-                  <>
-                    <button className="btn btn-sm btn-ghost !px-1" aria-label="Monter" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, -1), reload())}>
-                      <IconUp width={13} height={13} />
-                    </button>
-                    <button className="btn btn-sm btn-ghost !px-1" aria-label="Descendre" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, 1), reload())}>
-                      <IconDown width={13} height={13} />
-                    </button>
-                  </>
-                )}
-                <button className="btn btn-sm btn-ghost !px-1" aria-label="Détails, commentaires et historique" title="Détails, commentaires et historique" onClick={() => setEdit(h)}>
-                  <IconEdit width={13} height={13} />
-                </button>
-              </div>
-            </article>
-          );
-        })}
-        {!ro && (
-          <div className="flex flex-col justify-center rounded-xl border border-dashed border-line p-3.5">
+        {meeting.highlights.map((h, i) => (
+          <article key={h.id} className="group relative flex flex-col rounded-xl border border-line-soft bg-surface-2/60 p-3.5">
+            <div className="mb-1 flex items-start gap-1.5 pr-14">
+              {h.emoji && <span className="mt-0.5 text-base">{h.emoji}</span>}
+              <InlineText disabled={ro} value={h.title} onSave={async (v) => (v.trim() ? (await patch(acc.base, "highlight", h.id, { title: v.trim() }), reload()) : toast("error", "Le titre est obligatoire."))} render={(v) => <span className="font-display text-base font-bold leading-snug text-accent">{v}</span>} className="flex-1" />
+            </div>
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <TagSelect label="Type" disabled={ro} options={acc.byKind("HIGHLIGHT_TYPE")} value={h.typeId} onChange={async (v) => (await patch(acc.base, "highlight", h.id, { typeId: v }), reload())} onCreate={create.option("HIGHLIGHT_TYPE")} createLabel="Nouveau type…" />
+              <TagSelect
+                label="Stream"
+                variant="text"
+                className="text-xs font-semibold text-ocre"
+                disabled={ro}
+                options={streams}
+                value={h.streamId}
+                onChange={async (v) => (await patch(acc.base, "highlight", h.id, { streamId: v }), reload())}
+                onCreate={create.stream}
+                createLabel="Nouveau stream…"
+              />
+            </div>
+            <InlineText multiline disabled={ro} value={h.detail} onSave={async (v) => (await patch(acc.base, "highlight", h.id, { detail: v }), reload())} className="text-sm text-ink-2" placeholder="Détail du fait marquant…" />
+            <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+              {!ro && (
+                <>
+                  <button className="btn btn-sm btn-ghost !px-1" aria-label="Monter" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, -1), reload())}>
+                    <IconUp width={13} height={13} />
+                  </button>
+                  <button className="btn btn-sm btn-ghost !px-1" aria-label="Descendre" onClick={async () => (await move(acc.base, "highlight", meeting.highlights, i, 1), reload())}>
+                    <IconDown width={13} height={13} />
+                  </button>
+                </>
+              )}
+              <button className="btn btn-sm btn-ghost !px-1" aria-label="Détails, commentaires et historique" title="Détails, commentaires et historique" onClick={() => setEdit(h)}>
+                <IconEdit width={13} height={13} />
+              </button>
+            </div>
+          </article>
+        ))}
+        {!ro && adding && (
+          <div className="rounded-xl border border-dashed border-line p-3">
             <input
               className="input"
-              placeholder="+ Nouveau fait marquant (titre puis Entrée)"
+              autoFocus
+              placeholder="Titre du fait marquant, puis Entrée"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && quickAdd()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") quickAdd();
+                if (e.key === "Escape") (setAdding(false), setDraft(""));
+              }}
+              onBlur={() => !draft.trim() && setAdding(false)}
               aria-label="Nouveau fait marquant"
             />
-            <div className="mt-2 flex items-center justify-between gap-2">
-              <span className="text-[0.7rem] text-muted">Détail, type et stream se complètent ensuite sur la carte.</span>
-              <button className="btn btn-sm shrink-0" onClick={() => setEdit("new")}>
+            <div className="mt-1.5 flex justify-end gap-3 text-[0.7rem]">
+              <button className="text-muted hover:text-ink" onMouseDown={(e) => e.preventDefault()} onClick={() => (setAdding(false), setDraft(""), setEdit("new"))}>
                 Formulaire complet
+              </button>
+              <button className="text-muted hover:text-ink" onMouseDown={(e) => e.preventDefault()} onClick={() => (setAdding(false), setDraft(""))}>
+                Annuler
               </button>
             </div>
           </div>
         )}
-        {ro && !meeting.highlights.length && <Empty>Aucun fait marquant.</Empty>}
+        {!meeting.highlights.length && !adding && <p className="text-sm text-muted">Aucun fait marquant.</p>}
       </div>
       <HighlightModal meeting={meeting} item={edit} onClose={() => setEdit(null)} reload={reload} onCreateType={create.option("HIGHLIGHT_TYPE")} />
     </div>
@@ -528,50 +513,13 @@ function HighlightModal({
 // ---------------------------------------------------------------------------
 // Statut des streams
 // ---------------------------------------------------------------------------
-function StatusChips({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled: boolean }) {
-  const acc = useAcc();
-  const opts = acc.byKind("STREAM_STATUS");
-  const [adding, setAdding] = useState(false);
-  if (disabled)
-    return (
-      <div className="flex flex-col items-start gap-1">
-        {value.map((id) => (
-          <Pill key={id} option={acc.opt.get(id)} small />
-        ))}
-      </div>
-    );
-  return (
-    <div className="flex flex-wrap gap-1">
-      {opts.map((o) => {
-        const on = value.includes(o.id);
-        return (
-          <button
-            key={o.id}
-            onClick={() => onChange(on ? value.filter((x) => x !== o.id) : [...value, o.id])}
-            className={`rounded-full border px-2 py-0.5 text-[0.7rem] font-semibold transition ${on ? "" : "opacity-40 grayscale hover:opacity-80"}`}
-            style={{ color: tone[o.color], borderColor: `color-mix(in srgb, ${tone[o.color]} 40%, transparent)`, background: on ? `color-mix(in srgb, ${tone[o.color]} 14%, transparent)` : "transparent" }}
-            title={on ? "Retirer ce statut" : "Ajouter ce statut"}
-          >
-            {o.emoji} {o.label}
-          </button>
-        );
-      })}
-      {acc.isAdmin && (
-        <button className="rounded-full border border-dashed border-line px-2 py-0.5 text-[0.7rem] text-muted hover:text-accent" onClick={() => setAdding(true)} title="Nouveau statut de stream">
-          +
-        </button>
-      )}
-      <OptionModal item={adding ? "new" : null} kind="STREAM_STATUS" onClose={() => setAdding(false)} onSaved={(o) => onChange([...value, o.id])} />
-    </div>
-  );
-}
-
 function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: MeetingType; reload: () => void }) {
   const acc = useAcc();
   const confirm = useConfirm();
   const ro = !acc.canEdit;
   const st = type.settings ?? {};
   const [comments, setComments] = useState<StreamStatus | null>(null);
+  const create = useCreators(acc);
   const streams = acc.data.streams.filter((s) => s.active).map((s) => ({ id: s.id, label: s.name, emoji: s.emoji }));
   const add = async () => {
     await api(`${acc.base}/e/streamStatus`, { method: "POST", json: { meetingId: meeting.id, statusIds: [], order: meeting.statuses.length + 1 } });
@@ -579,11 +527,11 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
   };
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center gap-2">
         <h3 className="font-display text-base font-bold text-ink">📊 Statut des streams</h3>
         {!ro && (
-          <button className="btn btn-sm" onClick={add}>
-            <IconPlus /> Ajouter une ligne
+          <button className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={add} aria-label="Ajouter une ligne" title="Ajouter une ligne">
+            + Ajouter
           </button>
         )}
       </div>
@@ -603,19 +551,23 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
             return (
               <div
                 key={r.id}
-                className="grid gap-3 rounded-xl border border-line-soft bg-surface-2/40 p-3 lg:grid-cols-[220px_190px_1fr_1fr_60px] lg:rounded-none lg:border-x-0 lg:border-t-0 lg:bg-transparent"
+                className="group grid gap-3 rounded-xl border border-line-soft bg-surface-2/40 p-3 lg:grid-cols-[220px_190px_1fr_1fr_60px] lg:rounded-none lg:border-x-0 lg:border-t-0 lg:bg-transparent"
                 style={firstStatus ? { boxShadow: `inset 3px 0 0 ${tone[firstStatus.color]}` } : undefined}
               >
                 <div>
-                  {ro ? (
-                    <div className="font-semibold text-ink">{r.streamId ? `${acc.str.get(r.streamId)?.emoji ?? ""} ${acc.str.get(r.streamId)?.name ?? ""}` : "-"}</div>
-                  ) : (
-                    <OptionSelect options={streams} value={r.streamId} onChange={async (v) => (await patch(acc.base, "streamStatus", r.id, { streamId: v }), reload())} className="!py-1 text-sm font-semibold" />
-                  )}
+                  <TagSelect label="Stream" variant="text" className="text-sm font-semibold text-ink" disabled={ro} options={streams} value={r.streamId} onChange={async (v) => (await patch(acc.base, "streamStatus", r.id, { streamId: v }), reload())} />
                 </div>
                 <div>
                   <span className="label lg:hidden">{st.statusLabel ?? "Statut"}</span>
-                  <StatusChips value={r.statusIds} disabled={ro} onChange={async (v) => (await patch(acc.base, "streamStatus", r.id, { statusIds: v }), reload())} />
+                  <TagMulti
+                    label={st.statusLabel ?? "Statut"}
+                    options={acc.byKind("STREAM_STATUS")}
+                    value={r.statusIds}
+                    disabled={ro}
+                    onChange={async (v) => (await patch(acc.base, "streamStatus", r.id, { statusIds: v }), reload())}
+                    onCreate={create.option("STREAM_STATUS")}
+                    createLabel="Nouveau statut…"
+                  />
                 </div>
                 <div>
                   <span className="label lg:hidden">{st.progressLabel ?? "Avancement"}</span>
@@ -625,8 +577,8 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
                   <span className="label lg:hidden">{st.alertsLabel ?? "Alertes & prérequis"}</span>
                   <InlineText multiline disabled={ro} value={r.alerts} onSave={async (v) => (await patch(acc.base, "streamStatus", r.id, { alerts: v }), reload())} className="text-sm text-ink-2" />
                 </div>
-                <div className="flex items-start gap-0.5 lg:flex-col lg:items-end">
-                  <button className="btn btn-ghost btn-sm !px-1.5" aria-label="Commentaires" onClick={() => setComments(r)}>
+                <div className="flex items-start gap-0.5 transition lg:flex-col lg:items-end lg:opacity-0 lg:focus-within:opacity-100 lg:group-hover:opacity-100">
+                  <button className="btn btn-ghost btn-sm !px-1.5" aria-label="Commentaires et historique" title="Commentaires et historique" onClick={() => setComments(r)}>
                     <IconComment width={14} height={14} />
                   </button>
                   {!ro && (
@@ -676,14 +628,15 @@ function StatusBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
 function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: MeetingType; reload: () => void }) {
   const acc = useAcc();
   const [edit, setEdit] = useState<Topic | "new" | null>(null);
+  const create = useCreators(acc);
   const decisionLabel = type.settings?.decisionLabel ?? "Arbitrage ou décision demandée";
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
+      <div className="mb-3 flex items-center gap-2">
         <h3 className="font-display text-base font-bold text-ink">🗂️ Sujets</h3>
         {acc.canEdit && (
-          <button className="btn btn-sm" onClick={() => setEdit("new")}>
-            <IconPlus /> Ajouter un sujet
+          <button className="rounded-md px-1.5 py-0.5 text-xs font-semibold text-muted transition hover:bg-surface-2 hover:text-accent" onClick={() => setEdit("new")} aria-label="Ajouter un sujet" title="Ajouter un sujet">
+            + Ajouter
           </button>
         )}
       </div>
@@ -706,17 +659,17 @@ function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
               </thead>
               <tbody>
                 {meeting.topics.map((t, i) => (
-                  <tr key={t.id}>
+                  <tr key={t.id} className="group">
                     <td className="text-muted">{i + 1}</td>
                     <td className="cursor-pointer font-semibold text-ink" onClick={() => setEdit(t)}>
                       {t.emoji && <span className="mr-1">{t.emoji}</span>}
                       {t.title}
                     </td>
                     <td>
-                      <Pill option={t.themeId ? acc.opt.get(t.themeId) : null} small />
+                      <TagSelect label="Thématique" disabled={!acc.canEdit} options={acc.byKind("TOPIC_THEME")} value={t.themeId} onChange={async (v) => (await patch(acc.base, "topic", t.id, { themeId: v }), reload())} onCreate={create.option("TOPIC_THEME")} createLabel="Nouvelle thématique…" />
                     </td>
                     <td>
-                      <Pill option={t.natureId ? acc.opt.get(t.natureId) : null} small />
+                      <TagSelect label="Nature" disabled={!acc.canEdit} options={acc.byKind("TOPIC_NATURE")} value={t.natureId} onChange={async (v) => (await patch(acc.base, "topic", t.id, { natureId: v }), reload())} onCreate={create.option("TOPIC_NATURE")} createLabel="Nouvelle nature…" />
                     </td>
                     <td>
                       <InlineText multiline disabled={!acc.canEdit} value={t.description} onSave={async (v) => (await patch(acc.base, "topic", t.id, { description: v }), reload())} className="text-[0.83rem]" />
@@ -725,7 +678,7 @@ function TopicsBlock({ meeting, type, reload }: { meeting: Meeting; type: Meetin
                       <InlineText multiline disabled={!acc.canEdit} value={t.decisionRequest} onSave={async (v) => (await patch(acc.base, "topic", t.id, { decisionRequest: v }), reload())} className="text-[0.83rem]" />
                     </td>
                     {acc.canEdit && (
-                      <td className="whitespace-nowrap">
+                      <td className="whitespace-nowrap opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
                         <button className="btn btn-ghost btn-sm !px-1.5" aria-label="Monter" onClick={async () => (await move(acc.base, "topic", meeting.topics, i, -1), reload())}>
                           <IconUp width={14} height={14} />
                         </button>

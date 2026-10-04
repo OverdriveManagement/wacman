@@ -43,7 +43,7 @@ export async function buildCardsWorkbook(ctx: Ctx, sprintId?: string) {
     { header: "Point d'avancement", key: "progress", width: 50 },
     { header: "Prochaines étapes", key: "next", width: 50 },
     { header: "Alertes / arbitrages", key: "alerts", width: 50 },
-    { header: "Mis à jour", key: "updated", width: 16 },
+    { header: "Contenu modifié le", key: "updated", width: 16 },
   ];
   for (const c of cards) {
     const row = ws.addRow({
@@ -61,7 +61,7 @@ export async function buildCardsWorkbook(ctx: Ctx, sprintId?: string) {
       progress: plain(c.progressNote),
       next: plain(c.nextSteps),
       alerts: plain(c.alertsNote),
-      updated: c.updatedAt,
+      updated: c.contentUpdatedAt ?? c.updatedAt,
     });
     row.getCell("start").numFmt = "dd/mm/yyyy";
     row.getCell("due").numFmt = "dd/mm/yyyy";

@@ -4,7 +4,8 @@ import { useState } from "react";
 import { api } from "@/lib/api";
 import { frDate } from "@/lib/format";
 import type { GovernanceBody, Sprint, Stream } from "@/lib/types";
-import { useAcc } from "@/components/AccountContext";
+import { useAcc, useEditMode } from "@/components/AccountContext";
+import { TagSelect } from "@/components/Tag";
 import { Callout, InlineText, SectionTitle, useConfirm } from "@/components/ui";
 import { IconDown, IconEdit, IconPlus, IconTrash, IconUp } from "@/components/icons";
 import { SprintModal, StreamModal, useSprintSwitch } from "@/components/config";
@@ -21,6 +22,7 @@ export default function GovernancePage() {
   const confirm = useConfirm();
   const reload = () => acc.mutate();
   const admin = acc.isAdmin;
+  const edit = useEditMode();
   const [sprintEdit, setSprintEdit] = useState<Sprint | "new" | null>(null);
   const [streamEdit, setStreamEdit] = useState<Stream | "new" | null>(null);
   const sw = useSprintSwitch();
@@ -56,7 +58,7 @@ export default function GovernancePage() {
                     {h}
                   </th>
                 ))}
-                {admin && <th style={{ background: color }} />}
+                {edit && <th style={{ background: color }} />}
               </tr>
             </thead>
             <tbody>
@@ -67,7 +69,7 @@ export default function GovernancePage() {
                   <td className="w-[22%]">{cellEdit(g, "participants")}</td>
                   <td className="w-[12%]">{cellEdit(g, "frequency")}</td>
                   <td className="w-[12%]">{cellEdit(g, "support")}</td>
-                  {admin && (
+                  {edit && (
                     <td className="whitespace-nowrap">
                       <button className="btn btn-ghost btn-sm !px-1.5" aria-label="Monter" onClick={() => move(i, -1)}>
                         <IconUp width={14} height={14} />
@@ -94,7 +96,7 @@ export default function GovernancePage() {
             </tbody>
           </table>
         </div>
-        {admin && (
+        {edit && (
           <button
             className="btn btn-sm"
             onClick={async () => {
@@ -132,7 +134,7 @@ export default function GovernancePage() {
                 <th className="w-[34%]">Stream</th>
                 <th>{s.labels.leader}</th>
                 <th>{s.labels.prescriber}</th>
-                {admin && <th className="w-12" />}
+                {edit && <th className="w-12" />}
               </tr>
             </thead>
             <tbody>
@@ -147,7 +149,7 @@ export default function GovernancePage() {
                   <td>
                     <InlineText disabled={!admin} value={st.prescriber} onSave={(v) => patch("stream", st.id, { prescriber: v })} />
                   </td>
-                  {admin && (
+                  {edit && (
                     <td>
                       <button className="btn btn-ghost btn-sm !px-1.5" aria-label={`Modifier le stream ${st.name}`} onClick={() => setStreamEdit(st)}>
                         <IconEdit width={14} height={14} />
@@ -159,7 +161,7 @@ export default function GovernancePage() {
             </tbody>
           </table>
         </div>
-        {admin && (
+        {edit && (
           <button className="btn btn-sm mt-2" onClick={() => setStreamEdit("new")}>
             <IconPlus /> Ajouter un stream
           </button>
@@ -170,7 +172,7 @@ export default function GovernancePage() {
         <SectionTitle
           icon="🗓️"
           actions={
-            admin && (
+            edit && (
               <>
                 <button className="btn btn-sm" onClick={() => setSprintEdit("new")}>
                   <IconPlus /> Nouveau sprint
@@ -196,7 +198,7 @@ export default function GovernancePage() {
                 <th>État</th>
                 <th className="w-[38%]">Échéance {acc.data.account.clientName}</th>
                 <th className="w-[26%]">Objectif</th>
-                {admin && <th className="w-12" />}
+                {edit && <th className="w-12" />}
               </tr>
             </thead>
             <tbody>
@@ -207,17 +209,15 @@ export default function GovernancePage() {
                     {frDate(sp.startDate)} au {frDate(sp.endDate)}
                   </td>
                   <td className="whitespace-nowrap">
-                    {admin ? (
-                      <select className="input !w-auto !py-1 text-xs" value={sp.state} onChange={(e) => patch("sprint", sp.id, { state: e.target.value })}>
-                        {Object.entries(STATE).map(([k, v]) => (
-                          <option key={k} value={k}>
-                            {v.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span style={{ color: STATE[sp.state].color }}>{STATE[sp.state].label}</span>
-                    )}
+                    <TagSelect
+                      label="État du sprint"
+                      variant="text"
+                      allowClear={false}
+                      disabled={!admin}
+                      options={Object.entries(STATE).map(([k, v]) => ({ id: k, label: v.label }))}
+                      value={sp.state}
+                      onChange={(v) => v && patch("sprint", sp.id, { state: v })}
+                    />
                   </td>
                   <td>
                     <InlineText multiline disabled={!admin} value={sp.clientMilestone} onSave={(v) => patch("sprint", sp.id, { clientMilestone: v })} />
@@ -225,7 +225,7 @@ export default function GovernancePage() {
                   <td>
                     <InlineText multiline disabled={!admin} value={sp.objective} onSave={(v) => patch("sprint", sp.id, { objective: v })} />
                   </td>
-                  {admin && (
+                  {edit && (
                     <td>
                       <button className="btn btn-ghost btn-sm !px-1.5" aria-label={`Modifier ${sp.name}`} onClick={() => setSprintEdit(sp)}>
                         <IconEdit width={14} height={14} />

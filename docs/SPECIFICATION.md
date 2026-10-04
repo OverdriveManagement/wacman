@@ -4,7 +4,7 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt.
 
-Version courante : **V1.2** (4 octobre 2026).
+Version courante : **V1.3** (4 octobre 2026).
 
 ---
 
@@ -12,7 +12,10 @@ Version courante : **V1.2** (4 octobre 2026).
 
 - **Multi-comptes** : chaque client est un compte (La Poste est le premier). Toute donnée appartient à un compte.
 - **Tout est configurable par compte** : streams, sprints, colonnes du kanban, niveaux d'alerte, listes de valeurs, types de séance, comitologie, textes et libellés, sections affichées.
-- **Paramétrage en place** : les réglages courants se font depuis les écrans, sans passer par les paramètres du compte (« + » pour créer, « ⋯ » sur un en-tête pour modifier, « Nouveau… » dans une liste déroulante), réservés aux administrateurs pour la configuration et aux éditeurs pour l'annuaire. Les Paramètres du compte restent la vue complète.
+- **Paramétrage en place** : les réglages courants se font depuis les écrans, sans passer par les paramètres du compte (« + » pour créer, « ⋯ » sur un en-tête pour modifier, « Nouveau… » dans une liste), réservés aux administrateurs pour la configuration et aux éditeurs pour l'annuaire. Les Paramètres du compte restent la vue complète.
+- **Mode édition** (administrateurs) : bouton « Mode édition » de l'en-tête. Les boutons de structure (sprints, colonnes, streams, types de séance, valeurs de listes, comitologie, paliers de fraîcheur) n'apparaissent qu'en mode édition, signalé par un bandeau. Hors mode édition, le contenu reste modifiable : textes en édition directe, étiquettes, déplacement des cartes.
+- **Écrans épurés** : pas de liste déroulante visible. Une valeur s'affiche comme une étiquette, un clic dessus ouvre le choix ; une valeur vide est une simple pastille discrète pour en ajouter une. Les ajouts sont un « + » ou « Ajouter » discret, visible au survol dans les cases du kanban.
+- **Menu de gauche rétractable** : réduit aux pictos pour élargir l'écran (choix mémorisé sur l'appareil).
 - **Mise en forme des textes** : barre d'outils dans chaque zone de texte multi-ligne (voir 4.8).
 - **Trois sections par compte** : Program Management (V1), Finance management et Provisioning management (pages « À venir » en V1, activables ou non par compte).
 - **Interface en français**, mobile d'abord, thème sombre aux couleurs Wifirst (thème clair disponible).
@@ -73,16 +76,18 @@ Les données se rafraîchissent chaque minute.
 Le kanban seul, sans bandeau ni faits marquants (ils sont dans le Program weekly), avec deux vues :
 - **Par statut** : colonnes = statuts (À faire, En cours, Standby, Terminé pour La Poste), couloirs = streams marqués « Kanban ». Onglets de sprint en tête : sprint en cours (par défaut) et sprints suivants, « Sans sprint », « Tous », sprints terminés dans une liste. Ligne d'information du sprint : dates, échéance client, barre d'avancement (cartes terminées sur le total).
 - **Par sprint** : colonnes = sprint en cours, sprints suivants et « Non planifiées », couloirs = streams ; chaque carte affiche son statut. Glisser une carte vers une autre colonne la replanifie dans ce sprint. Les cartes terminées sont masquées par défaut.
-- Bouton **Filtres** (replié par défaut) : porteur, titre ou référence, « Vigilance ou alerte », « En retard », « Mes cartes », « Afficher les terminées » (vue par sprint).
-- Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » dans chaque case.
-- **Paramétrage en place** (administrateurs) : « + Sprint » à côté des onglets (le nouveau sprint s'enchaîne au dernier, même durée) et « ⋯ » du sprint choisi (modifier, basculer au sprint suivant) ; « ⋯ » d'une colonne (modifier libellé, picto, couleur, colonne « terminé », déplacer à gauche ou à droite, supprimer) et « + » en bout d'en-tête pour ajouter une colonne (ou un sprint en vue par sprint) ; « ⋯ » d'un couloir (modifier le stream, monter, descendre, retirer du kanban) et « + Ajouter un stream ».
+- **Étiquette de fraîcheur** sur chaque carte : nombre de jours depuis la dernière modification du contenu (« auj. » le jour même), avec un picto et une couleur par palier. Par défaut : 🟢 vert jusqu'à 7 jours, 🟠 orange de 8 à 14 jours, 🔴 rouge au-delà ; pas d'étiquette sur les cartes terminées. Le survol donne la date exacte. Paliers (nombre, seuils, pictos, couleurs, libellés), affichage et cartes terminées réglables par un administrateur : bouton « 🕒 Fraîcheur » du kanban en mode édition, ou Paramètres du compte. Le compteur repart à zéro à chaque modification d'un texte ou d'une propriété (statut, stream, porteur, sprint, dates, avancement, niveau d'alerte), y compris par glisser vers une autre colonne ; un réordonnancement dans la même case, un archivage ou la bascule automatique de sprint ne comptent pas.
+- Bouton **Filtres** (replié par défaut) : porteur, titre ou référence, « Vigilance ou alerte », « En retard », « Sans mise à jour depuis plus de 7 j » (premier palier de fraîcheur, cartes non terminées), « Mes cartes », « Afficher les terminées » (vue par sprint).
+- Glisser-déposer entre colonnes et couloirs (appui long sur mobile) ; sur mobile, une colonne à la fois. Couloirs repliables. Bouton « Nouvelle carte » et « + Ajouter » discret dans chaque case (au survol).
+- **Paramétrage en place** (administrateurs, en mode édition) : « + Sprint » à côté des onglets (le nouveau sprint s'enchaîne au dernier, même durée) et « ⋯ » du sprint choisi (modifier, basculer au sprint suivant) ; « ⋯ » d'une colonne (modifier libellé, picto, couleur, colonne « terminé », déplacer à gauche ou à droite, supprimer) et « + » en bout d'en-tête pour ajouter une colonne (ou un sprint en vue par sprint) ; « ⋯ » d'un couloir (modifier le stream, monter, descendre, retirer du kanban) et « + Ajouter un stream ».
 - **Mode d'emploi** (texte configurable, replié).
 
 ### 4.2 Carte (livrable)
 - En-tête : Réf. (numérotation automatique par compte), titre, statut, stream, porteur, sprint.
 - Corps : description, point d'avancement, prochaines étapes, vigilance / alerte, début prévu, échéance (le début ne peut pas suivre l'échéance), alertes / arbitrages (encadré coloré selon le niveau). Début prévu et échéance alimentent le planning ; à défaut, le planning reprend les dates du sprint.
 - Porteur et stream : « Nouveau contact… » ou « Nouveau stream… » dans la liste pour les créer sans quitter la carte.
-- Détails : avancement (%), picto, date de mise à jour, duplication (copie de tous les champs sauf commentaires, placée juste après l'originale), archivage, suppression.
+- Propriétés affichées comme des étiquettes (clic pour modifier, pastille pour une valeur vide).
+- Détails : avancement (%), picto, date de dernière modification du contenu avec l'étiquette de fraîcheur, duplication (copie de tous les champs sauf commentaires, placée juste après l'originale), archivage, suppression.
 - Commentaires et historique des modifications (qui a changé quoi, avant et après).
 - Règle de contenu (reprise du Notion) : alertes / arbitrages n'est renseigné que pour une carte en vigilance ou en alerte ; sinon les actions vont dans prochaines étapes.
 - Balisage léger accepté dans les textes : **gras**, puces « • » ou « - », liens [texte](https://…).
@@ -147,7 +152,7 @@ Un bouton appliqué deux fois retire la mise en forme. Entrée prolonge une list
 Pages « À venir » en V1. Chaque section s'active ou se masque par compte (Paramètres du compte, Général).
 
 ## 6. Paramètres d'un compte (administrateurs)
-- **Général** : nom, client, sigle, picto, description ; sections actives ; libellés « leader » et « prescripteur » ; textes (introduction, mode d'emploi du kanban, introduction et titres de la comitologie, libellés de la dernière colonne, méthodologie des sprints).
+- **Général** : nom, client, sigle, picto, description ; sections actives ; libellés « leader » et « prescripteur » ; textes (introduction, mode d'emploi du kanban, introduction et titres de la comitologie, libellés de la dernière colonne, méthodologie des sprints) ; fraîcheur des cartes (affichage, cartes terminées, paliers ; enregistrement séparé, retour aux valeurs par défaut).
 - **Streams** : picto, nom, leader, prescripteur, ordre, actif, Kanban (couloir), Ligne de séance (créée d'office), Annuaire.
 - **Sprints** : nom, dates, état, échéance client, objectif, ordre.
 - **Listes de valeurs** (picto, libellé, couleur, ordre) : colonnes du kanban (avec la colonne « Terminé »), niveaux de vigilance / alerte, types de faits marquants, statuts des streams, thématiques et natures des sujets, types, statuts (avec « Clos ») et criticités des risques. Une valeur encore utilisée par des cartes ne peut pas être supprimée.
@@ -177,6 +182,7 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 - Import par l'administration (rubrique Import) ou en ligne de commande. Si le compte existe, son contenu est remplacé et les accès conservés.
 - V1 (import de développement du 03/10/2026) : 10 streams, 4 sprints, 7 contacts, 29 cartes (la carte vide Réf. 37 est ignorée), 6 séances (2 Program weekly, 2 COPROJ LP, 2 Strategic Committee), 6 faits marquants, 13 statuts de streams (la ligne vide du 25/09 est ignorée), 11 sujets, 18 risques et arbitrages, 10 instances de comitologie.
 - Un nouvel import sera fait juste avant la mise en service.
+- Fraîcheur : la date « Mis à jour » de chaque livrable Notion devient la date de dernière modification du contenu de la carte (import et script). Pour le compte La Poste déjà en service, les dates relevées dans Notion le 04/10/2026 ont été appliquées par Réf. ; une modification faite dans WacMan depuis l'import l'emporte si elle est plus récente.
 
 ## 9. Robustesse
 - Une erreur d'affichage dans une page d'un compte est contenue : la navigation reste disponible, avec les boutons Réessayer et Recharger.
@@ -205,3 +211,5 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 | 04/10/2026 | Trouver et intégrer de manière autonome d'autres améliorations, sans validation intermédiaire | V1.1 : tableau de bord (4.0), recherche globale Ctrl+K (4.7), filtres « En retard » et « Mes cartes » et barre d'avancement sur le kanban, duplication de carte, compte rendu de séance à copier ou en PDF, mot de passe oublié par code e-mail (2.1), jetons d'accès personnels (2.2), connecteur Claude MCP et API REST par jeton (7.1), application installable, correctifs (fenêtres décalées sous l'en-tête, lien direct qui rouvrait la carte d'origine après duplication) |
 | 04/10/2026 | Distinguer Kanban et Program weekly : Kanban du sprint en cours et des sprints suivants par stream ; Program weekly avec faits marquants éditables, cartes en vigilance ou en alerte, planning Gantt par stream (barres colorées selon le niveau, titre cliquable), complété par mes idées ; déplacer le paramétrage dans les écrans sans les alourdir | V1.2 : kanban en deux vues, par statut (onglets de sprint) et par sprint (replanification par glisser) (4.1) ; page de séance à une séance à la fois, faits marquants en édition directe et ajout rapide, blocs à date « cartes en vigilance ou en alerte » et « planning » (4.3) ; date de début prévu des cartes ; planning glissable, jalons, retards, sprints, zoom ; slide Planning dans l'export PowerPoint ; paramétrage en place : sprints, colonnes, streams, types de séance, valeurs de listes et contacts créés depuis les écrans (1, 4.1, 4.3 à 4.5) |
 | 04/10/2026 | Ajouter des options de mise en forme du texte (gras, italique, puces et boutons standard du marché) à l'édition d'une cellule et dans une carte ouverte | Barre de mise en forme et raccourcis clavier dans toutes les zones de texte multi-ligne, cases à cocher cliquables, rendu et exports mis à jour (4.8) |
+| 04/10/2026 | Créer un mode édition : boutons d'édition des modèles visibles seulement dans ce mode ; cacher au maximum les boutons d'édition des cartes et éléments (textes toujours éditables, déplacement des cartes toujours possible) ; pas de liste déroulante ni d'étiquette vide visibles, un clic sur l'étiquette pour la modifier et une pastille discrète pour une valeur vide ; ajout de carte plus discret ; menu de gauche rétractable | V1.3 : mode édition des administrateurs avec bandeau (1) ; étiquettes cliquables et pastilles à la place des listes déroulantes (cartes, faits marquants, statuts des streams, sujets, gouvernance) ; « + Ajouter » discret au survol ; menu de gauche réduit aux pictos (1, 4.1, 4.2) |
+| 04/10/2026 | Étiquette sur les cartes du kanban : nombre de jours depuis la dernière modification du contenu, couleur et picto selon l'ancienneté, paramétrable par l'administrateur (par défaut 7 jours, 14 jours, plus ancien) ; reprendre les dates de dernière modification des cartes La Poste depuis Notion | Étiquette de fraîcheur, filtre « Sans mise à jour », paliers réglables depuis le kanban et les paramètres (4.1, 4.2, 6) ; date de modification du contenu suivie à part du simple réordonnancement ; dates Notion appliquées au compte La Poste ; colonne « Contenu modifié le » dans l'export Excel (8) |

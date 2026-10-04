@@ -24,6 +24,7 @@ Règles :
 - Rédaction en français, sobre : pas de tiret cadratin, pas de flèches, phrases simples, vocabulaire du programme (build, stream, sprint, livrable).
 - Mise en forme possible dans les textes saisis : **gras**, *italique*, listes « - » ou « 1. », cases « [ ] » ; rester sobre.
 - Une carte peut porter un début prévu (startDate) et une échéance (dueDate) : ils alimentent le planning du Program weekly.
+- contentUpdatedAt indique la dernière modification du contenu d'une carte (sert à l'étiquette de fraîcheur du kanban) ; il se met à jour tout seul, ne le modifiez pas.
 - À la fin, résume en quelques lignes ce que tu as fait (éléments créés ou modifiés), sans recopier tout le contenu.`;
 }
 

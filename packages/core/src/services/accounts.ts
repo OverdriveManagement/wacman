@@ -26,10 +26,30 @@ export async function listAccountsForUser(user: SessionUser) {
     }));
 }
 
+export const freshnessSchema = z.object({
+  enabled: z.boolean(),
+  hideDone: z.boolean(),
+  levels: z
+    .array(
+      z.object({
+        maxDays: z.number().int().min(0).max(3650).nullable(),
+        emoji: z.string().max(8),
+        color: z.string().max(20),
+        label: z.string().max(40),
+      }),
+    )
+    .min(1)
+    .max(6)
+    .refine((l) => l[l.length - 1].maxDays === null && l.slice(0, -1).every((x, i, a) => x.maxDays !== null && (i === 0 || x.maxDays > (a[i - 1].maxDays as number))), {
+      message: "Paliers croissants, le dernier sans limite.",
+    }),
+});
+
 export function mergeSettings(clientName: string, stored: Record<string, unknown> | null | undefined): AccountSettings {
   const d = defaultSettings(clientName);
   const s = (stored ?? {}) as Partial<AccountSettings>;
-  return { ...d, ...s, labels: { ...d.labels, ...(s.labels ?? {}) } };
+  const f = freshnessSchema.safeParse(s.freshness);
+  return { ...d, ...s, labels: { ...d.labels, ...(s.labels ?? {}) }, freshness: f.success ? f.data : d.freshness };
 }
 
 /** Tout ce dont l'interface a besoin pour afficher un compte : configuration et référentiels. */
@@ -196,6 +216,7 @@ export async function updateAccount(ctx: Ctx, input: unknown) {
   const [current] = await db.select().from(T.accounts).where(eq(T.accounts.id, ctx.accountId));
   const data: Partial<typeof T.accounts.$inferInsert> = { ...d } as never;
   if (d.modules) data.modules = { ...defaultModules, ...current.modules, ...d.modules };
+  if (d.settings?.freshness !== undefined && !freshnessSchema.safeParse(d.settings.freshness).success) throw badRequest("Paliers de fraîcheur invalides.");
   if (d.settings) {
     const cur = current.settings ?? {};
     const next: Record<string, unknown> = { ...cur, ...d.settings };

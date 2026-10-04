@@ -8,9 +8,11 @@ import { api, fetcher } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
 import { frDate, isOverdue, tone } from "@/lib/format";
 import type { Card, Option, Sprint, Stream } from "@/lib/types";
-import { useAcc } from "@/components/AccountContext";
+import { useAcc, useEditMode } from "@/components/AccountContext";
 import { CardModal } from "@/components/CardModal";
 import { Markdown } from "@/components/Markdown";
+import { FreshnessModal, FreshnessTag, useFreshness } from "@/components/Freshness";
+import { daysSince } from "@/lib/freshness";
 import { AddButton, Menu, OptionModal, SprintModal, StreamModal, swapOrder, useSprintSwitch, type MenuItem } from "@/components/config";
 import { Disclosure, Empty, Field, Modal, OptionSelect, Pill, Spinner } from "@/components/ui";
 import { IconChevronDown, IconComment, IconPlus } from "@/components/icons";
@@ -53,7 +55,7 @@ export default function KanbanPage() {
       <Disclosure title="Mode d'emploi">
         <Markdown text={acc.data.account.settings.kanbanGuide} />
         <p className="mt-3 text-xs text-muted">
-          Vue « Par statut » : le kanban d'un sprint. Vue « Par sprint » : glissez une carte d'un sprint à l'autre pour la replanifier. Administrateurs : « + » pour créer un sprint, une colonne ou un stream, « ⋯ » sur un en-tête pour le modifier.
+          Vue « Par statut » : le kanban d'un sprint. Vue « Par sprint » : glissez une carte d'un sprint à l'autre pour la replanifier. Administrateurs : activez le « Mode édition » (en haut) pour créer un sprint, une colonne ou un stream (« + ») et les modifier (« ⋯ » sur un en-tête).
         </p>
       </Disclosure>
       <CardModal card={open} onClose={() => setOpen(null)} onChanged={onChanged} onDuplicated={(c) => (mutate(), setOpen(c))} />
@@ -63,7 +65,8 @@ export default function KanbanPage() {
 
 function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<typeof useSWR<Card[]>>["mutate"]; onOpen: (c: Card) => void }) {
   const acc = useAcc();
-  const admin = acc.isAdmin;
+  // boutons de structure (sprints, colonnes, streams) : visibles en mode édition seulement
+  const admin = useEditMode();
   const statuses = acc.byKind("CARD_STATUS");
   const sprints = useMemo(() => [...acc.data.sprints].sort((a, b) => a.order - b.order), [acc.data.sprints]);
   const openSprints = sprints.filter((s) => s.state !== "DONE");
@@ -77,6 +80,10 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
   const [alertOnly, setAlertOnly] = useState(false);
   const [lateOnly, setLateOnly] = useState(false);
   const [mineOnly, setMineOnly] = useState(false);
+  const [staleOnly, setStaleOnly] = useState(false);
+  const [freshOpen, setFreshOpen] = useState(false);
+  const fresh = useFreshness();
+  const staleAfter = fresh.levels.length > 1 ? fresh.levels[0].maxDays : null;
   const [showDone, setShowDone] = useState(false);
   const [mobileCol, setMobileCol] = useState<Record<View, string>>({ status: statuses[1]?.id ?? statuses[0]?.id ?? "", sprints: acc.currentSprint?.id ?? "none" });
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -105,9 +112,10 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
         (!alertOnly || c.alertLevelId) &&
         (!lateOnly || (isOverdue(c.dueDate) && !acc.isDone(c.statusId))) &&
         (!mineOnly || (c.ownerId && myContacts.has(c.ownerId))) &&
+        (!staleOnly || staleAfter === null || ((daysSince(c.contentUpdatedAt ?? c.updatedAt) ?? 0) > staleAfter && !acc.isDone(c.statusId))) &&
         (!q || c.title.toLowerCase().includes(q) || String(c.ref) === q),
     );
-  }, [cards, owner, alertOnly, lateOnly, mineOnly, myContacts, query, acc]);
+  }, [cards, owner, alertOnly, lateOnly, mineOnly, staleOnly, staleAfter, myContacts, query, acc]);
 
   // ---------------------------------------------------------------- colonnes, couloirs et rangement des cartes
   const inScope = (c: Card) =>
@@ -224,7 +232,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
   const sprintCards = (cards ?? []).filter((c) => sprint && c.sprintId === sprint.id);
   const doneCount = sprintCards.filter((c) => acc.isDone(c.statusId)).length;
   const donePct = sprintCards.length ? Math.round((doneCount / sprintCards.length) * 100) : 0;
-  const activeFilters = [owner, alertOnly, lateOnly, mineOnly, query.trim()].filter(Boolean).length;
+  const activeFilters = [owner, alertOnly, lateOnly, mineOnly, staleOnly, query.trim()].filter(Boolean).length;
   const mobileColId = cols.some((c) => c.id === mobileCol[view]) ? mobileCol[view] : cols[0]?.id;
 
   const addAt = (laneId: string | null, colId: string) => {
@@ -249,6 +257,11 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
           ))}
         </div>
         <div className="flex-1" />
+        {admin && (
+          <button className="btn btn-ghost btn-sm" onClick={() => setFreshOpen(true)} title="Paliers de l'étiquette « jours depuis la dernière modification »">
+            🕒 Fraîcheur
+          </button>
+        )}
         <button className={`btn btn-sm ${activeFilters ? "btn-primary" : ""}`} onClick={() => setFiltersOpen(!filtersOpen)} aria-expanded={filtersOpen}>
           Filtres{activeFilters ? ` (${activeFilters})` : ""}
         </button>
@@ -338,6 +351,11 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
             <FilterChip active={lateOnly} onClick={() => setLateOnly(!lateOnly)}>
               ⏰ En retard
             </FilterChip>
+            {fresh.enabled && staleAfter !== null && (
+              <FilterChip active={staleOnly} onClick={() => setStaleOnly(!staleOnly)}>
+                💤 Sans mise à jour depuis plus de {staleAfter} j
+              </FilterChip>
+            )}
             {myContacts.size > 0 && (
               <FilterChip active={mineOnly} onClick={() => setMineOnly(!mineOnly)}>
                 🙋 Mes cartes
@@ -378,7 +396,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
                       <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.color }} />
                       <span className="min-w-0 truncate">{c.label}</span>
                       <span className="ml-auto text-xs text-muted">{scoped.filter((x) => colOf(x) === c.id).length}</span>
-                      {c.menu && <Menu items={c.menu} label="Options de la colonne" className="opacity-60 group-hover:opacity-100" />}
+                      {c.menu && <Menu items={c.menu} label="Options de la colonne" />}
                     </div>
                   ))}
                 </div>
@@ -403,7 +421,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
                         <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted">{count}</span>
                         {lane.leader && <span className="hidden truncate text-xs text-muted sm:inline">{lane.leader}</span>}
                       </button>
-                      {menu.length > 0 && <Menu items={menu} label={`Options du stream ${lane.stream?.name}`} className="opacity-60 group-hover:opacity-100" />}
+                      {menu.length > 0 && <Menu items={menu} label={`Options du stream ${lane.stream?.name}`} />}
                     </div>
                     {!isCollapsed &&
                       (isMobile ? (
@@ -438,6 +456,7 @@ function Board({ cards, mutate, onOpen }: { cards?: Card[]; mutate: ReturnType<t
       <SprintModal item={sprintEdit} onClose={() => setSprintEdit(null)} onSaved={(s) => sprintEdit === "new" && view === "status" && setSprintId(s.id)} />
       <StreamModal item={streamEdit} onClose={() => setStreamEdit(null)} />
       <OptionModal item={colEdit} kind="CARD_STATUS" onClose={() => setColEdit(null)} />
+      <FreshnessModal open={freshOpen} onClose={() => setFreshOpen(false)} />
       {sw.node}
     </section>
   );
@@ -467,7 +486,7 @@ function Cell({ id, cards, onOpen, canEdit, onAdd, showStatus }: { id: string; c
         <DraggableCard key={c.id} card={c} onOpen={onOpen} canEdit={canEdit} showStatus={showStatus} />
       ))}
       {canEdit && (
-        <button className="rounded-lg py-1 text-xs text-muted opacity-60 transition hover:bg-surface-2 hover:text-ink group-hover:opacity-100" onClick={onAdd}>
+        <button className="rounded-lg py-0.5 text-xs text-muted opacity-60 transition hover:bg-surface-2 hover:text-ink focus:opacity-100 md:opacity-0 md:group-hover:opacity-100" onClick={onAdd} aria-label="Ajouter une carte ici">
           + Ajouter
         </button>
       )}
@@ -522,7 +541,10 @@ function CardTile({ card, overlay = false, showStatus = false }: { card: Card; o
             {card.commentCount}
           </span>
         )}
-        <span className="ml-auto opacity-60">#{card.ref}</span>
+        <span className="ml-auto flex items-center gap-1.5">
+          <FreshnessTag card={card} />
+          <span className="opacity-60">#{card.ref}</span>
+        </span>
       </div>
       {card.progressPct !== null && card.progressPct !== undefined && (
         <div className="mt-2 h-1 overflow-hidden rounded bg-surface-3">

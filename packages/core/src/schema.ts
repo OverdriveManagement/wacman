@@ -218,6 +218,9 @@ export const cards = pgTable(
     archived: boolean("archived").notNull().default(false),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
+    // Dernière modification du contenu (textes, propriétés, statut, stream) : sert à l'étiquette de fraîcheur.
+    // Un simple réordonnancement ou une bascule automatique de sprint ne la change pas.
+    contentUpdatedAt: timestamp("content_updated_at", { withTimezone: true }).notNull().defaultNow(),
     updatedById: uuid("updated_by_id"),
   },
   (t) => [uniqueIndex("cards_account_ref_uq").on(t.accountId, t.ref), index("cards_account_sprint_idx").on(t.accountId, t.sprintId)],

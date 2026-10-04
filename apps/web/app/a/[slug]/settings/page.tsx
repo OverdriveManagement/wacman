@@ -12,6 +12,8 @@ import { EntityEditor } from "@/components/EntityEditor";
 import { Field, Modal, SectionTitle, Spinner, Toggle, useConfirm } from "@/components/ui";
 import { IconDownload, IconPlus, IconTrash } from "@/components/icons";
 import { RichField } from "@/components/RichText";
+import { FreshnessEditor } from "@/components/Freshness";
+import { DEFAULT_FRESHNESS, freshnessError } from "@/lib/freshness";
 
 const TABS = [
   ["general", "Général"],
@@ -56,7 +58,9 @@ function General() {
   const [form, setForm] = useState({ name: a.name, clientName: a.clientName, clientShortName: a.clientShortName, emoji: a.emoji, description: a.description });
   const [settings, setSettings] = useState<AccountSettings>(a.settings);
   const save = async () => {
-    await api(acc.base, { method: "PATCH", json: { ...form, settings } });
+    // la fraîcheur s'enregistre à part (bouton dédié) pour ne pas écraser un réglage fait depuis le kanban
+    const { freshness: _f, ...texts } = settings;
+    await api(acc.base, { method: "PATCH", json: { ...form, settings: texts } });
     toast("success", "Paramètres enregistrés.");
     acc.mutate();
   };
@@ -131,12 +135,40 @@ function General() {
         </div>
         {text("sprintMethodology", "Méthodologie des sprints")}
       </section>
+      <FreshnessSection />
       <div className="lg:col-span-2">
         <button className="btn btn-primary" onClick={save}>
           Enregistrer
         </button>
       </div>
     </div>
+  );
+}
+
+function FreshnessSection() {
+  const acc = useAcc();
+  const [f, setF] = useState(acc.data.account.settings.freshness ?? DEFAULT_FRESHNESS);
+  const save = async () => {
+    await api(acc.base, { method: "PATCH", json: { settings: { freshness: f } } });
+    toast("success", "Paliers de fraîcheur enregistrés.");
+    acc.mutate();
+  };
+  return (
+    <section className="card space-y-3 p-5 lg:col-span-2">
+      <SectionTitle>Fraîcheur des cartes</SectionTitle>
+      <p className="-mt-2 text-xs text-muted">Étiquette du kanban qui indique depuis combien de jours le contenu d'une carte n'a pas été modifié. Aussi réglable depuis le kanban en mode édition.</p>
+      <div className="max-w-2xl">
+        <FreshnessEditor value={f} onChange={setF} />
+      </div>
+      <div className="flex gap-2">
+        <button className="btn btn-primary btn-sm" disabled={!!freshnessError(f)} onClick={save}>
+          Enregistrer les paliers
+        </button>
+        <button className="btn btn-ghost btn-sm" onClick={() => setF(DEFAULT_FRESHNESS)}>
+          Valeurs par défaut
+        </button>
+      </div>
+    </section>
   );
 }
 

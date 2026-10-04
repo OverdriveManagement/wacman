@@ -457,6 +457,13 @@ export async function createEntity(ctx: Ctx, name: string, input: unknown) {
   return def.model === "risk" ? (await withCardIds([row]))[0] : row;
 }
 
+const NOT_CONTENT = new Set(["position", "archived", "updatedById", "contentUpdatedAt"]);
+function sameValue(a: unknown, b: unknown) {
+  if (a instanceof Date) a = a.toISOString();
+  if (b instanceof Date) b = b.toISOString();
+  return (a ?? null) === (b ?? null);
+}
+
 export async function updateEntity(ctx: Ctx, name: string, id: string, input: unknown) {
   const def = getEntity(name);
   assertRole(ctx, def.editRole);
@@ -471,7 +478,12 @@ export async function updateEntity(ctx: Ctx, name: string, id: string, input: un
   await checkRefs(ctx, data, def.model);
   const cardIds = data.cardIds as string[] | undefined;
   delete data.cardIds;
-  if (def.model === "card") data.updatedById = ctx.user.id;
+  if (def.model === "card") {
+    data.updatedById = ctx.user.id;
+    // Fraîcheur : seule une vraie modification du contenu compte (pas un réordonnancement ni un archivage)
+    const touched = Object.keys(data).some((k) => !NOT_CONTENT.has(k) && !sameValue(before[k], data[k]));
+    if (touched) data.contentUpdatedAt = new Date();
+  }
   const t = table(def);
 
   const row = await db.transaction(async (tx) => {

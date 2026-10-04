@@ -85,6 +85,7 @@ export const accountFileSchema = z.object({
       archived: z.boolean().optional(),
       createdAt: opt,
       updatedAt: opt,
+      contentUpdatedAt: opt, // dernière modification du contenu (à défaut : updatedAt)
     }),
   ),
   meetings: z.array(
@@ -253,6 +254,7 @@ export async function importAccount(user: SessionUser, input: unknown) {
             archived: c.archived ?? false,
             createdAt: c.createdAt ? new Date(c.createdAt) : new Date(),
             updatedAt: c.updatedAt ? new Date(c.updatedAt) : new Date(),
+            contentUpdatedAt: new Date(c.contentUpdatedAt ?? c.updatedAt ?? Date.now()),
             updatedById: user.id,
           };
         }),
@@ -398,6 +400,7 @@ export async function exportAccount(user: SessionUser, accountId: string): Promi
       archived: c.archived,
       createdAt: c.createdAt.toISOString(),
       updatedAt: c.updatedAt.toISOString(),
+      contentUpdatedAt: c.contentUpdatedAt.toISOString(),
     })),
     meetings: mtgs.map((m) => ({
       type: m.meetingTypeId,

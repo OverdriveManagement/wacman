@@ -71,6 +71,7 @@ export async function moveCard(ctx: Ctx, cardId: string, input: unknown) {
       changes[k] = [card[k], v];
     }
   }
+  if (Object.keys(changes).length) data.contentUpdatedAt = new Date();
   const [row] = await db.update(T.cards).set(data).where(eq(T.cards.id, card.id)).returning();
   if (Object.keys(changes).length) await audit(ctx, "card", card.id, "move", `Carte déplacée : ${card.title}`, changes);
   return row;

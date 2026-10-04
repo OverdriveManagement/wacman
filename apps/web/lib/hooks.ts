@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { useMemo } from "react";
 import { fetcher } from "./api";
+import { useEditMode } from "@/components/AccountContext";
 import type { AccountSummary, Bootstrap, Option, OptionKind, User } from "./types";
 
 export function useMe() {
@@ -34,6 +35,8 @@ export type AccountCtx = ReturnType<typeof useAccount>;
  * Chaque fonction n'est fournie que si le rôle le permet (annuaire : éditeur ; listes et streams : administrateur).
  */
 export function useCreators(acc: AccountCtx) {
+  // les listes de valeurs et les streams relèvent de la structure : création réservée au mode édition
+  const editMode = useEditMode();
   return useMemo(() => {
     const post = async <T extends { id: string }>(entity: string, json: unknown) => {
       const { api } = await import("./api");
@@ -42,11 +45,11 @@ export function useCreators(acc: AccountCtx) {
       return row.id;
     };
     const option = (kind: OptionKind) =>
-      acc.isAdmin ? (label: string) => post("option", { kind, label, order: Math.max(0, ...acc.byKind(kind).map((o) => o.order)) + 1 }) : undefined;
+      editMode ? (label: string) => post("option", { kind, label, order: Math.max(0, ...acc.byKind(kind).map((o) => o.order)) + 1 }) : undefined;
     return {
       contact: acc.canEdit ? (name: string) => post("contact", { name }) : undefined,
-      stream: acc.isAdmin ? (name: string) => post("stream", { name, order: Math.max(0, ...(acc.data?.streams ?? []).map((s) => s.order)) + 1 }) : undefined,
+      stream: editMode ? (name: string) => post("stream", { name, order: Math.max(0, ...(acc.data?.streams ?? []).map((s) => s.order)) + 1 }) : undefined,
       option,
     };
-  }, [acc]);
+  }, [acc, editMode]);
 }

@@ -35,6 +35,20 @@ export interface AccountSettings {
   governanceJointSupportLabel: string;
   sprintMethodology: string;
   labels: { leader: string; prescriber: string };
+  freshness: FreshnessSettings;
+}
+
+/** Paliers de l'étiquette de fraîcheur des cartes (le dernier, sans limite, couvre le reste). */
+export interface FreshnessLevel {
+  maxDays: number | null;
+  emoji: string;
+  color: string;
+  label: string;
+}
+export interface FreshnessSettings {
+  enabled: boolean;
+  hideDone: boolean;
+  levels: FreshnessLevel[];
 }
 
 export type OptionKind =
@@ -170,6 +184,7 @@ export interface Card {
   archived: boolean;
   createdAt: string;
   updatedAt: string;
+  contentUpdatedAt: string;
   commentCount?: number;
 }
 
