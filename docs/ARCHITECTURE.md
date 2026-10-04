@@ -78,7 +78,7 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 - Étiquettes : `components/Tag.tsx` (`TagSelect`, `TagMulti`, `DateTag`, pastille `EmptyDot`, `Popover` rendu en portail) remplacent les listes déroulantes visibles.
 - Fraîcheur : `components/Freshness.tsx` (étiquette, éditeur et fenêtre des paliers) et `lib/freshness.ts` (jours calendaires à l'heure de Paris, palier, contrôles identiques à l'API).
 - Planning : `components/Planning.tsx` (Gantt en HTML et CSS, glisser au jour près par événements pointeur ; règles de barre partagées avec la slide PowerPoint : début prévu ou début du sprint, échéance ou fin du sprint, jalon si échéance seule).
-- Mise en forme : `components/RichText.tsx` (barre d'outils, raccourcis, prolongation des listes ; transformations pures sur le texte et la sélection) et `components/Markdown.tsx` (rendu, cases cliquables). Le balisage léger est retiré ou converti par `plain()` (API) et `plainText()` (compte rendu), et converti en segments mis en forme par `runs()` (PowerPoint).
+- Mise en forme : `components/RichText.tsx` (barre d'outils, raccourcis, prolongation des listes ; transformations pures sur le texte et la sélection) et `components/Markdown.tsx` (rendu, cases cliquables). Le balisage léger est retiré ou converti par `plain()` (API) et `plainText()` (compte rendu texte), converti en HTML d'e-mail à styles en ligne par `mdToHtml()` (`lib/reportHtml.ts` : `meetingReportHtml()` et `copyRich()`, qui pose `text/html` et `text/plain` dans le presse-papiers, avec repli par sélection et copie), et converti en segments mis en forme par `runs()` (PowerPoint).
 
 ## Migrations
 

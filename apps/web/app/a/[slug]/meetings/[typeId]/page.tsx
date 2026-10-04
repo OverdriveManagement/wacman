@@ -14,6 +14,7 @@ import { Callout, Disclosure, Empty, Field, InlineText, Modal, OptionSelect, Pil
 import { Comments, History } from "@/components/Comments";
 import { IconChevron, IconComment, IconCopy, IconDown, IconEdit, IconPlus, IconPrint, IconTrash, IconUp } from "@/components/icons";
 import { meetingReportText } from "@/lib/report";
+import { copyRich, meetingReportHtml } from "@/lib/reportHtml";
 import { AlertCards } from "@/components/AlertCards";
 import { Planning } from "@/components/Planning";
 import { CardModal } from "@/components/CardModal";
@@ -29,6 +30,7 @@ import { RichField } from "@/components/RichText";
  */
 export default function MeetingsPage() {
   const acc = useAcc();
+  const { data: me } = useMe();
   const { typeId } = useParams<{ typeId: string }>();
   const type = acc.data.meetingTypes.find((t) => t.id === typeId);
   const { data: meetings, mutate } = useSWR<Meeting[]>(type ? `${acc.base}/meetings?typeId=${typeId}` : null, fetcher);
@@ -112,11 +114,14 @@ export default function MeetingsPage() {
               <div className="flex-1" />
               <button
                 className="btn btn-ghost btn-sm"
-                title="Copier le compte rendu (texte prêt pour un e-mail)"
+                title="Copier le compte rendu mis en forme, prêt à coller dans Gmail"
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(meetingReportText(meeting, type, acc));
-                    toast("success", "Compte rendu copié : collez-le dans votre e-mail.");
+                    const cards = type.blocks.includes("ALERT_CARDS") ? api<Card[]>(`${acc.base}/cards`) : Promise.resolve(undefined);
+                    const signature = me?.user.name?.split(" ")[0];
+                    const html = cards.then((list) => meetingReportHtml(meeting, type, acc, { cards: list, signature }));
+                    const how = await copyRich(html, meetingReportText(meeting, type, acc));
+                    toast("success", how === "rich" ? "Compte rendu copié avec sa mise en forme : collez-le dans votre e-mail." : "Compte rendu copié en texte simple.");
                   } catch {
                     toast("error", "Copie impossible dans ce navigateur.");
                   }
