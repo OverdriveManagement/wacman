@@ -54,9 +54,13 @@ export function TokensDialog({ open, onClose }: { open: boolean; onClose: () => 
             <CopyLine label="Jeton" value={created.token} onCopy={() => copy(created.token, "Jeton")} />
             <div>
               <div className="label">Dans claude.ai ou Claude Desktop</div>
-              <p className="mb-2 text-xs text-muted">Paramètres, Connecteurs, Ajouter un connecteur personnalisé. Nom : WacMan. Adresse du serveur :</p>
+              <p className="mb-2 text-xs text-muted">
+                Customize, Connectors, « + Add », « Add custom connector ». Nom : WacMan. Authentification : No sign in. Adresse du serveur :
+              </p>
               <CopyLine value={`${base}/api/mcp/${created.token}`} onCopy={() => copy(`${base}/api/mcp/${created.token}`, "Adresse du connecteur")} />
-              <p className="mt-1 text-xs text-amber">Cette adresse contient le jeton : ne la partagez pas. Révoquez le jeton ici en cas de doute.</p>
+              <p className="mt-1 text-xs text-amber">
+                Cette adresse contient le jeton : ne la partagez pas. Sur une offre Team ou Enterprise, le connecteur ajouté par un propriétaire est partagé avec toute l'organisation : préférez alors un jeton en lecture seule. Révoquez le jeton ici en cas de doute.
+              </p>
             </div>
             <div>
               <div className="label">Dans Claude Code</div>

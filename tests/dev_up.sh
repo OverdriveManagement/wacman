@@ -2,7 +2,7 @@
 # Environnement local de test : PostgreSQL, faux serveur Claude (port 4900), API (4000), front (3000).
 # Crée au besoin la base locale et apps/api/.env.dev (mot de passe local tiré au hasard, jamais affiché).
 T=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$T/.." && pwd); mkdir -p "$T/out"
-service postgresql start >/dev/null 2>&1
+service postgresql start </dev/null >/dev/null 2>&1
 if ! sudo -u postgres psql -tAc "select 1 from pg_roles where rolname='wacman'" 2>/dev/null | grep -q 1; then
   sudo -u postgres psql -qc "create role wacman login password 'wacman'" && sudo -u postgres createdb -O wacman wacman
 fi

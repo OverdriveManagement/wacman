@@ -24,7 +24,6 @@ Navigateur ──► Vercel (Paris, cdg1)                 Railway (Amsterdam, eu
 | `apps/api` | Serveur Fastify : authentification, routes REST, exports PowerPoint (pptxgenjs) et Excel (exceljs), assistant Claude, envoi des codes (Resend). |
 | `apps/web` | Interface Next.js (App Router, React 19, Tailwind 4, SWR, dnd-kit). |
 | `tools/notion_to_wacman.py` | Conversion de l'export Notion en fichier d'import. |
-| `tools/connect_claude_account.sh` | Raccordement d'un autre compte Claude (accès GitHub, connecteurs, test d'un jeton WacMan). |
 | `tests/` | Suites de non-régression (API en Python, parcours navigateur Playwright), faux serveur Claude, scripts de l'environnement local. |
 | `CLAUDE.md` | Consignes lues par Claude Code à l'ouverture du dépôt (renvoie vers `docs/PASSATION.md`). |
 | `docs/` | Spécification, architecture, exploitation, passation. |

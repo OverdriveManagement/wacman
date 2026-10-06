@@ -7,7 +7,7 @@ Ce document rassemble tout ce qu'il faut pour reprendre le développement de Wac
 Comment s'en servir :
 - il est versionné dans le dépôt (`docs/PASSATION.md`), et `CLAUDE.md` à la racine demande de le lire : toute session Claude Code ouverte sur le dépôt y a donc accès ;
 - le déposer aussi dans un projet Claude « WacMan » du nouveau compte, pour les conversations hors code ;
-- la partie 11 liste les accès à ouvrir, et le script `tools/connect_claude_account.sh` fait avec Florent ce qui peut l'être depuis son ordinateur ;
+- la partie 11 donne le parcours pour ouvrir les accès, entièrement dans le navigateur (aucun script à lancer de son côté) ;
 - la partie 12 donne le message de démarrage à coller dans la première session.
 
 ---
@@ -88,7 +88,7 @@ Avec le connecteur Vercel, passer l'identifiant du projet : la portée par le no
 | 04/10/2026 | `d1776c2` | « Copier le CR » en HTML sur le modèle du CR COPROJ envoyé dans Gmail |
 | 04/10/2026 | V1.4 (`bed5ce3`) | revue générale, environ 40 correctifs, suites de tests |
 | 04/10/2026 | V1.5 (`561a4d5`) | relevé des actions et registre des décisions, e-mail complet du CR, quoi de neuf et faits marquants proposés par Claude, revue de stream avec mode présentation, bilan de sprint, import d'un CR d'atelier, PowerPoint au format des decks Program weekly et COPROJ |
-| 06/10/2026 | passation | ce document, `CLAUDE.md`, suites de tests versionnées dans `tests/`, script `tools/connect_claude_account.sh` ; correctif : un jeton en lecture seule d'un super-administrateur voit de nouveau tous les comptes dans `list_accounts` |
+| 06/10/2026 | passation | ce document, `CLAUDE.md`, suites de tests versionnées dans `tests/`, parcours des accès entièrement dans le navigateur ; correctif : un jeton en lecture seule d'un super-administrateur voit de nouveau tous les comptes dans `list_accounts` |
 
 Données reprises en production par les migrations : dates « Mis à jour » Notion des cartes La Poste (0003) ; 7 actions du COPROJ LP du 01/10/2026, 4 décisions du Strategic Committee du 29/09/2026 tirées des sujets, réglages d'e-mail du COPROJ LP (0004).
 
@@ -120,6 +120,7 @@ Tout est décrit dans `tests/README.md`. En bref : `bash tests/dev_up.sh` (Postg
 - Fastify refuse une requête DELETE avec `Content-Type: application/json` et un corps vide (400).
 - Playwright : les cases à cocher contrôlées (enregistrées puis rafraîchies) se cliquent avec `click()`, pas `check()` ; les étiquettes ont un `aria-label` du type « Statut de la décision : Prise » ; les lignes d'actions et de décisions portent `data-action-id` et `data-decision-id` ; les champs date se remplissent avec `fill()` en AAAA-MM-JJ.
 - Pas de prettier : le dépôt n'a pas de configuration, il reformaterait les fichiers.
+- `e2e_tour.py` : la vérification « Ctrl+K dans un texte » (barre de mise en forme) échoue parfois pour une question de minutage du curseur ; la relancer avant de chercher une régression.
 - Les journaux Railway affichent « npm warn config production » au niveau erreur : sans conséquence.
 - Exports PowerPoint : gabarit 16:9 (10 x 5,625 pouces), titres Hind Madurai gras 20 pt `004968`, chapô Inter 8 pt `334155`, intertitres Inter ExtraBold 7,5 pt `2563EB` avec filet `F1F5F9`, palette bleu `2563EB`, bleu clair `9DBDF4`, ocre `D97706`, teal `0F766E`, rouge `EF4444`, fond de carte `F8FAFC`, mention de confidentialité Hind Madurai Light 6 pt `A6AAA9`.
 
@@ -144,43 +145,45 @@ Liste établie avec Florent le 04/10/2026 (non commencée) :
 
 ## 11. Connexions à établir pour le nouveau compte Claude
 
-Le script `tools/connect_claude_account.sh`, lancé par Florent sur son ordinateur, guide toutes ces étapes, invite au besoin un autre identifiant GitHub sur le dépôt et teste le jeton WacMan. Les autorisations elles-mêmes (OAuth, installation d'application GitHub, ajout de connecteurs) se donnent dans le navigateur par Florent : aucun outil ne peut les accorder à sa place.
+Tout se fait dans le navigateur, sans script ni terminal. Les autorisations (connexions OAuth, application GitHub, connecteurs) se donnent par Florent avec ses propres comptes : aucun outil ne peut les accorder à sa place. Les vérifications sont faites ensuite par le nouveau Claude lui-même, dans sa première session (partie 12).
 
-| Accès | Pourquoi | Indispensable | Qui le fait |
-|---|---|---|---|
-| Dépôt GitHub `OverdriveManagement/wacman` | lire, modifier et pousser le code | oui | Florent (invitation si autre identifiant GitHub) |
-| Application GitHub Claude sur l'organisation OverdriveManagement | Claude Code dans le navigateur ne voit un dépôt privé qu'avec elle | oui | Florent, propriétaire de l'organisation GitHub |
-| Claude Code (claude.ai/code) relié à GitHub, environnement Default | sessions de développement dans le cloud | oui | Florent, dans le nouveau compte |
-| Connecteur Railway | état des déploiements, journaux, variables | oui pour vérifier les mises en ligne | Florent (connexion avec son compte Railway) |
-| Connecteur Vercel | état des déploiements du front, domaines | oui pour vérifier les mises en ligne | Florent (connexion avec son compte Vercel) |
-| Connecteur WacMan (MCP) | lire et modifier le contenu des comptes en langage naturel | non pour le code | Florent (jeton créé dans WacMan) |
-| Notion, Gmail, Google Drive | ancien espace Notion, CR envoyés, decks de référence | non | Florent |
-| Projet Claude « WacMan » | garder ce document et les échanges hors code | conseillé | Florent |
+| Étape | Pourquoi | Indispensable |
+|---|---|---|
+| 1. GitHub | lire, modifier et pousser le code | oui |
+| 2. Claude Code relié à GitHub | sessions de développement dans le cloud | oui |
+| 3. Connecteurs Railway et Vercel | vérifier les mises en ligne, lire les journaux | oui |
+| 4. Connecteur WacMan | lire et modifier le contenu des comptes en langage naturel | non pour le code |
+| 5. Projet Claude « WacMan » | garder ce document et les échanges hors code | conseillé |
+| 6. Sauvegarde JSON du compte La Poste | données des tests locaux | oui pour tester |
+| 7. Connecteurs Notion, Gmail, Google Drive | ancien espace Notion, CR envoyés, decks | non |
 
-### 11.1 GitHub
-- Si le nouveau compte Claude utilise le même identifiant GitHub que Florent : rien à faire sur le dépôt.
-- Sinon : inviter cet identifiant sur le dépôt avec le droit d'écriture (le script le fait avec `gh`), puis l'accepter depuis le compte invité.
-- Installer l'application GitHub Claude (https://github.com/apps/claude/installations/new) sur l'organisation `OverdriveManagement`, avec accès au dépôt `wacman`.
+### Étape 1 : GitHub
+- **Même identifiant GitHub** pour le nouveau compte Claude que pour l'actuel : rien à faire sur le dépôt.
+- **Autre identifiant GitHub** : sur https://github.com/OverdriveManagement/wacman/settings/access, « Add people », saisir l'identifiant, rôle **Write** ; puis accepter l'invitation depuis l'autre compte GitHub (e-mail reçu, ou https://github.com/OverdriveManagement/wacman/invitations).
+- **Application GitHub Claude** : ouvrir https://github.com/organizations/OverdriveManagement/settings/installations et vérifier que « Claude » y figure avec accès au dépôt `wacman` (c'est probablement déjà le cas, puisque le compte actuel travaille sur ce dépôt). Sinon, l'installer depuis https://github.com/apps/claude/installations/new : choisir OverdriveManagement, « Only select repositories », `wacman`.
 
-### 11.2 Claude Code dans le cloud
-- Dans le nouveau compte : https://claude.ai/code, « Sign in with GitHub », puis environnement **Default** (réseau Trusted). Il suffit : npm, PyPI, GitHub et les dépôts Ubuntu sont autorisés, PostgreSQL 16 est préinstallé. Aucune variable d'environnement n'est nécessaire, et il ne faut y mettre aucun secret (les variables d'un environnement sont lisibles par ceux qui l'utilisent).
-- Script d'installation facultatif pour l'environnement : `npm ci && pip install --break-system-packages playwright python-pptx python-docx openpyxl`.
-- Sur une offre Team ou Enterprise (par exemple une organisation Claude Wifirst) : un propriétaire de l'organisation doit d'abord activer le connecteur GitHub (Admin settings, Connectors), et le siège doit inclure Claude Code.
+### Étape 2 : Claude Code dans le nouveau compte
+- Se connecter à https://claude.ai/code avec le nouveau compte, cliquer « Sign in with GitHub » et accepter, puis garder l'environnement **Default** proposé (réseau Trusted).
+- Rien d'autre à régler : npm, PyPI, GitHub et les dépôts Ubuntu sont autorisés, PostgreSQL 16 est préinstallé, Claude installe lui-même le reste dans sa session. Ne mettre aucun secret dans les variables d'environnement (elles sont lisibles par ceux qui utilisent l'environnement).
+- Offre Team ou Enterprise (par exemple une organisation Claude Wifirst) : un propriétaire de l'organisation active d'abord le connecteur GitHub dans https://claude.ai/admin-settings/connectors, et le siège doit inclure Claude Code.
 
-### 11.3 Connecteurs Railway et Vercel
-- Customize, Connectors : ajouter Railway et Vercel, puis se connecter avec les comptes de Florent qui portent les projets `wacman`.
-- Sur Team ou Enterprise : un propriétaire les active pour l'organisation, puis chaque membre se connecte avec son propre compte.
-- Contrôle : demander au nouveau Claude de lister les déploiements du service `wacman-api` (projet Railway `15e94573-…`) et du projet Vercel `prj_jAcPBrMQB7OHlPrdy3l13JlQjMrF`.
+### Étape 3 : connecteurs Railway et Vercel
+- Ouvrir https://claude.ai/customize/connectors, chercher **Railway**, « Connect », se connecter avec le compte Railway qui porte le projet `wacman`. Même chose pour **Vercel** (compte de l'équipe Flogger Forge, projet `wacman`).
+- Offre Team ou Enterprise : un propriétaire les active pour l'organisation, puis chaque membre se connecte avec son propre compte.
 
-### 11.4 Connecteur WacMan (contenu)
-- Dans WacMan : menu utilisateur, « Connecteur Claude et jetons », créer un jeton dédié (par exemple « Claude Wifirst »), en lecture seule si les modifications ne doivent passer que par l'écran.
-- Offre individuelle (Pro, Max) : Customize, Connectors, « + Add », « Add custom connector », nom « WacMan », adresse `https://wacman-api-production.up.railway.app/api/mcp/<jeton>`, authentification « No sign in ».
-- **Attention sur une offre Team ou Enterprise** : un connecteur personnalisé y est ajouté par un propriétaire pour toute l'organisation. Comme l'adresse contient le jeton, tous les membres qui s'y connectent agiraient avec les droits de Florent. Dans ce cas, préférer un jeton en lecture seule, ou ne pas ajouter ce connecteur à l'organisation. Un jeton se révoque à tout moment dans WacMan et cesse aussitôt de fonctionner.
+### Étape 4 : connecteur WacMan (facultatif pour le code)
+1. Sur https://wacman.vercel.app : menu utilisateur (rond avec les initiales), « Connecteur Claude et jetons », nom par exemple « Claude Wifirst », durée au choix, « Lecture seule » coché si les modifications ne doivent passer que par l'écran, « Créer le jeton ».
+2. Copier l'**adresse du serveur** affichée sous « Dans claude.ai ou Claude Desktop » (bouton de copie).
+3. Sur https://claude.ai/customize/connectors : « + Add », « Add custom connector », nom « WacMan », coller l'adresse, authentification « No sign in », « Add ».
+- **Attention sur une offre Team ou Enterprise** : le connecteur personnalisé est ajouté par un propriétaire dans Organization settings, Connectors, pour toute l'organisation. Comme l'adresse contient le jeton, tous les membres qui s'y connectent agiraient avec les droits de Florent : préférer un jeton en lecture seule, ou ne pas ajouter ce connecteur. Un jeton se révoque à tout moment dans la même fenêtre de WacMan et cesse aussitôt de fonctionner.
 
-### 11.5 Données pour les tests
-- Télécharger dans WacMan la sauvegarde complète du compte La Poste (Paramètres du compte, Données) et la joindre à la session quand elle doit lancer les tests. Elle contient des données client : ne pas la verser dans le dépôt.
+### Étape 5 : projet Claude
+- Sur https://claude.ai/projects : nouveau projet « WacMan », ajouter ce fichier (`PASSATION.md`) aux connaissances du projet, et en instructions : « Lis docs/PASSATION.md et CLAUDE.md du dépôt OverdriveManagement/wacman avant toute évolution. »
 
-### 11.6 Ce qui ne se transmet pas
+### Étape 6 : données pour les tests
+- Dans WacMan : compte La Poste, Paramètres du compte, Données, « Sauvegarde complète du compte (JSON) ». Joindre le fichier téléchargé à la première session. Il contient des données client : il ne doit pas aller dans le dépôt.
+
+### Ce qui ne se transmet pas
 - La mémoire de l'ancien compte Claude et ses projets ne passent pas d'un compte à l'autre : ce document les remplace.
 - Les secrets de production restent dans Railway. Le nouveau compte n'a besoin ni de la clé Anthropic, ni de la clé Resend, ni du mot de passe de Florent.
 
