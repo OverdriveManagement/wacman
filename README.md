@@ -18,6 +18,8 @@
 - [Spécification fonctionnelle](docs/SPECIFICATION.md) (avec le journal des évolutions)
 - [Architecture technique](docs/ARCHITECTURE.md)
 - [Exploitation : hébergement, variables, déploiement, données](docs/EXPLOITATION.md)
+- [Passation : reprendre le développement depuis un autre compte Claude](docs/PASSATION.md) (et [CLAUDE.md](CLAUDE.md))
+- [Tests de non-régression](tests/README.md)
 
 ## Démarrage rapide
 

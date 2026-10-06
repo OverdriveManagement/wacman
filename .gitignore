@@ -9,3 +9,5 @@ data/*.json
 .DS_Store
 .vercel
 *.tsbuildinfo
+tests/out
+__pycache__

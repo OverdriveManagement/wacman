@@ -11,8 +11,12 @@ export async function listAccountsForUser(user: SessionUser) {
   const all = await db.select().from(T.accounts).orderBy(asc(T.accounts.archived), asc(T.accounts.name));
   const mine = await db.select().from(T.memberships).where(eq(T.memberships.userId, user.id));
   const roleOf = new Map(mine.map((m) => [m.accountId, m.role]));
+  // un jeton en lecture seule retire le drapeau super-administrateur de l'utilisateur : on le relit pour la visibilité
+  // des comptes (les droits restent ceux d'un lecteur, voir buildCtx)
+  const [u] = user.isSuperAdmin ? [{ isSuperAdmin: true }] : await db.select({ isSuperAdmin: T.users.isSuperAdmin }).from(T.users).where(eq(T.users.id, user.id)).limit(1);
+  const seesAll = !!u?.isSuperAdmin;
   return all
-    .filter((a) => user.isSuperAdmin || roleOf.has(a.id))
+    .filter((a) => seesAll || roleOf.has(a.id))
     .map((a) => ({
       id: a.id,
       slug: a.slug,
