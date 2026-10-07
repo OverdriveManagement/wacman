@@ -130,7 +130,7 @@ WiBridge partage l'API, la base, Resend et le dépôt de WacMan. Spécification 
 | `packages/core/src/bridge/notify.ts` | événements à notifier, destinataires, récapitulatif quotidien |
 | `apps/api/src/bridge/routes.ts` | routes `/api/bridge/*` |
 | `apps/api/src/bridge/session.ts` | cookies et jetons WiBridge |
-| `apps/api/src/bridge/mail.ts` | e-mails (gabarits, envoi Resend, boîte d'envoi de développement) |
+| `apps/api/src/bridge/mail.ts` | e-mails (gabarits, envoi Resend, boîte d'envoi de développement) ; `noAccessMail` répond à un mot de passe oublié demandé pour une adresse sans compte WiBridge actif (`bridgeStartReset` renvoie alors `noAccess`) |
 | `apps/api/src/bridge/xlsx.ts` | export Excel |
 | `apps/api/src/bridge/scheduler.ts` | récapitulatif quotidien |
 | `apps/bridge` | interface |

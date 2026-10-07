@@ -178,6 +178,13 @@ WAC = f"wacman.{RUN}@wibridge.test"
 st, r = w.req("POST", "/api/admin/users", {"email": WAC, "name": "Wanda WacMan", "password": "Wacman-Test-2026"})
 check("compte WacMan créé", st == 200, str(r))
 check("compte WacMan : pas d'accès WiBridge", S().req("POST", "/api/bridge/auth/login", {"email": WAC, "password": "Wacman-Test-2026"})[0] == 401)
+# mot de passe oublié sans compte WiBridge : pas de code, mais un e-mail qui explique comment demander un accès
+for addr, who in ((WAC, "compte WacMan seul"), (f"inconnu.{RUN}@wibridge.test", "adresse inconnue")):
+    before = mark()
+    st, r = S().req("POST", "/api/bridge/auth/forgot", {"email": addr.upper()})
+    got = [m for m in outbox(before) if m["to"] == addr]
+    check(f"mot de passe oublié, {who} : réponse identique, sans code", st == 200 and r.get("challengeId") and "devCode" not in r, str(r))
+    check(f"mot de passe oublié, {who} : e-mail d'explication", len(got) == 1 and "demande de nouveau mot de passe" in got[0]["subject"] and "invitation" in got[0]["text"], str(got)[:300])
 r = invite(WAC, "Wanda WacMan", "PROVIDER", "READ")
 check("invitation d'un compte WacMan : mode accès", r["mode"] == "access" and r["devLink"].endswith("/login"), str(r))
 check("e-mail d'accès envoyé", any(m["to"] == WAC and "accès" in m["subject"].lower() for m in outbox()))
@@ -553,8 +560,10 @@ check("super-admin : accès conservé", st == 400, str(r))
 
 # mot de passe oublié : nouveau mot de passe, appareils oubliés
 x = S()
+before = mark()
 st, r = x.req("POST", "/api/bridge/auth/forgot", {"email": BOTH})
 check("mot de passe oublié : code", st == 200 and r.get("devCode"), str(r))
+check("mot de passe oublié : e-mail du code envoyé", any(m["to"] == BOTH and r["devCode"] in m["subject"] for m in outbox(before)))
 st, r2 = x.req("POST", "/api/bridge/auth/reset", {"challengeId": r["challengeId"], "code": r["devCode"], "password": "Bridge-Nouveau-2026"})
 check("nouveau mot de passe", st == 200, str(r2))
 check("ancienne session fermée", both.req("GET", "/api/bridge/auth/me")[0] == 401)

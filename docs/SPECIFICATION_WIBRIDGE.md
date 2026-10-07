@@ -6,7 +6,7 @@ WiBridge est une interface autonome, publiée sur Vercel à l'adresse https://wi
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt. L'architecture commune est décrite dans `ARCHITECTURE.md` (partie WiBridge) et l'hébergement dans `EXPLOITATION.md`.
 
-Version courante : **V1.1** (7 octobre 2026).
+Version courante : **V1.2** (7 octobre 2026).
 
 ---
 
@@ -69,7 +69,7 @@ Un lien expiré, déjà utilisé ou remplacé affiche un message clair. Le super
 - Tentatives limitées : 8 par tranche de 10 minutes par adresse IP et e-mail, 20 par tranche de 30 minutes pour un même e-mail, 20 essais de code par tranche de 10 minutes par adresse IP.
 - Après connexion, seul un retour vers une page de WiBridge est accepté.
 
-**Mot de passe oublié** : code à 6 chiffres par e-mail (10 minutes, 5 essais), puis nouveau mot de passe. Toutes les sessions sont fermées et les appareils de confiance retirés. La réponse est identique que l'e-mail existe ou non. Une personne invitée qui a perdu son e-mail d'invitation peut aussi passer par là.
+**Mot de passe oublié** : code à 6 chiffres par e-mail (10 minutes, 5 essais), puis nouveau mot de passe. Toutes les sessions sont fermées et les appareils de confiance retirés. Une personne invitée qui a perdu son e-mail d'invitation peut aussi passer par là. Si l'adresse n'a pas de compte WiBridge actif (personne pas encore invitée, compte WacMan seul, accès retiré), elle reçoit à la place un e-mail qui l'explique et l'invite à demander un accès à son contact Wifirst. L'écran affiche le même message dans tous les cas, pour ne pas révéler quelles adresses ont un compte.
 
 ### 4.3 Mon compte
 Menu utilisateur (rond avec les initiales), « Mon compte » :
@@ -215,7 +215,7 @@ Par défaut, aucun e-mail de notification n'est envoyé : chacun choisit sa pré
 - **Récapitulatif quotidien** : du lundi au vendredi à partir de 8 h (heure de Paris), la liste des questions ouvertes attribuées à mon organisation, par échéance. Rien n'est envoyé s'il n'y a rien à traiter.
 - **Aucun e-mail** (par défaut).
 
-Un client archivé ou dont la règle « E-mails de notification » est désactivée n'envoie rien. Les codes de connexion et de mot de passe oublié, les invitations et les e-mails « accès ouvert » partent dans tous les cas.
+Un client archivé ou dont la règle « E-mails de notification » est désactivée n'envoie rien. Les codes de connexion et de mot de passe oublié (ou l'e-mail « pas de compte WiBridge »), les invitations et les e-mails « accès ouvert » partent dans tous les cas.
 
 ## 10. Export Excel
 
@@ -264,3 +264,4 @@ Menu utilisateur, « Administration » :
 | 07/10/2026 | Par défaut, pas de notification par e-mail pour les utilisateurs, chacun pouvant changer l'option dans ses paramètres | V1.1 : préférence « Aucun e-mail » par défaut (migration `0006_bridge_notify_default`, accès existants passés à « Aucun e-mail ») ; rappel dans les e-mails d'invitation et d'accès ; préférence toujours réglable dans Mon compte (4.3, 9) |
 | 07/10/2026 | Un clic n'importe où sur une ligne de question doit déplier la question | V1.1 : clic sur la ligne ou la carte pour déplier ; sur le sujet et le texte, le premier clic ne fait que déplier, l'édition se fait ensuite ; sur une étiquette, le choix s'ouvre aussi (7) |
 | 07/10/2026 | Permettre à un utilisateur de modifier ou de supprimer ses réponses | V1.1 : menu « ⋯ » d'une réponse (Modifier, Supprimer avec confirmation) ; l'auteur modifie ou supprime ses réponses à tout moment ; une réponse supprimée laisse une mention avec son issue, sans changer l'attribution ni le statut ; trace à l'historique (migration `0007_bridge_message_delete`) (5.2, 6.6, 6.7) |
+| 07/10/2026 | La fonction mot de passe oublié n'envoie pas d'e-mail de réinitialisation | Constat dans les journaux : les deux demandes de 18 h n'ont déclenché aucun envoi, ce qui arrive quand l'adresse saisie n'a pas de compte WiBridge actif (vraisemblablement une personne invitée quelques minutes plus tard) ; rien ne le signalait. V1.2 : une adresse sans compte WiBridge actif reçoit un e-mail qui l'explique et indique comment demander un accès ; message de l'écran précisé (4.2, 9) |

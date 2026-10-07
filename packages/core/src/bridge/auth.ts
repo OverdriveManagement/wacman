@@ -158,10 +158,16 @@ export async function bridgeAcceptInvitation(token: string, input: unknown) {
 // Mot de passe oublié, changement de mot de passe, appareils
 // ---------------------------------------------------------------------------
 
+/**
+ * Mot de passe oublié. Sans compte WiBridge actif pour l'adresse (personne pas encore invitée, compte WacMan seul, accès
+ * retiré), aucun code n'est créé : `noAccess` porte l'adresse, à qui l'API envoie un e-mail d'explication. La réponse
+ * faite au demandeur reste la même dans tous les cas.
+ */
 export async function bridgeStartReset(email: string) {
-  const [user] = await db.select().from(T.users).where(eq(T.users.email, email.trim().toLowerCase()));
+  const address = email.trim().toLowerCase();
+  const [user] = await db.select().from(T.users).where(eq(T.users.email, address));
   // un compte invité qui n'a pas encore choisi son mot de passe peut aussi passer par là (le code e-mail fait foi)
-  if (!user || !user.active || !(user.bridgeAccess || user.isSuperAdmin)) return { challengeId: randomUUID(), code: null, user: null };
+  if (!user || !user.active || !(user.bridgeAccess || user.isSuperAdmin)) return { challengeId: randomUUID(), code: null, user: null, noAccess: address };
   await db
     .update(T.loginChallenges)
     .set({ consumedAt: new Date() })
@@ -171,7 +177,7 @@ export async function bridgeStartReset(email: string) {
     .insert(T.loginChallenges)
     .values({ userId: user.id, purpose: "BRIDGE_RESET", codeHash: sha(`bridge-reset:${user.id}:${code}`), expiresAt: new Date(Date.now() + OTP_TTL_MIN * 60_000) })
     .returning();
-  return { challengeId: ch.id, code, user };
+  return { challengeId: ch.id, code, user, noAccess: null };
 }
 
 export async function bridgeCompleteReset(challengeId: string, code: string, password: string) {

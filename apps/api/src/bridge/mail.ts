@@ -93,6 +93,22 @@ export function resetCodeMail(to: string, name: string, code: string): Mail {
   };
 }
 
+/** Mot de passe oublié demandé pour une adresse sans compte WiBridge actif : l'e-mail explique comment obtenir un accès. */
+export function noAccessMail(to: string): Mail {
+  const lead = `Un nouveau mot de passe WiBridge a été demandé pour l'adresse ${to}, mais aucun compte WiBridge actif n'est ouvert pour cette adresse.`;
+  const how = "L'accès à WiBridge se fait sur invitation : demandez-la à votre contact chez Wifirst. Vous recevrez alors un e-mail pour créer votre mot de passe.";
+  return {
+    to,
+    subject: "WiBridge : demande de nouveau mot de passe",
+    html: layout(
+      "Pas de compte WiBridge",
+      p("Bonjour,") + p(esc(lead)) + p(esc(how)) + small("Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."),
+      "Vous recevez ce message à la suite d'une demande faite sur la page de connexion de WiBridge.",
+    ),
+    text: `Bonjour,\n\n${lead}\n${how}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n`,
+  };
+}
+
 const clientList = (clients: { name: string }[]) => (clients.length ? clients.map((c) => c.name).join(", ") : "");
 
 /** Rappel des notifications, désactivées par défaut. */

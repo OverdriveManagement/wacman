@@ -137,7 +137,7 @@ function LoginForm() {
       ) : step === "forgot" ? (
         <form onSubmit={submitForgot} className="space-y-4">
           <h1 className="font-display text-2xl font-bold text-ink">Mot de passe oublié</h1>
-          <p className="text-sm text-ink-2">Indiquez votre e-mail : si un compte existe, vous recevrez un code pour choisir un nouveau mot de passe.</p>
+          <p className="text-sm text-ink-2">Indiquez votre e-mail : vous recevrez un code pour choisir un nouveau mot de passe. Sans compte WiBridge, l'e-mail vous indique comment demander un accès.</p>
           <label className="block">
             <span className="label">E-mail</span>
             <input className="input" type="email" autoComplete="username" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -153,7 +153,7 @@ function LoginForm() {
       ) : step === "reset" ? (
         <form onSubmit={submitReset} className="space-y-4">
           <h1 className="font-display text-2xl font-bold text-ink">Nouveau mot de passe</h1>
-          <p className="text-sm text-ink-2">Si un compte existe pour {email}, un code à 6 chiffres vient d'être envoyé. Il est valable 10 minutes.</p>
+          <p className="text-sm text-ink-2">Un e-mail vient d'être envoyé à {email}. Il contient un code à 6 chiffres, valable 10 minutes, si cette adresse a un compte WiBridge ; sinon, il explique comment demander un accès. Pensez à regarder dans les courriers indésirables.</p>
           {reset?.devCode && <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs text-amber">Mode développement : code {reset.devCode}</p>}
           <label className="block">
             <span className="label">Code reçu par e-mail</span>

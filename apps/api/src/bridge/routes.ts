@@ -17,7 +17,7 @@ import {
   signBridgeSession,
   signBridgeUpload,
 } from "./session.js";
-import { accessMail, deliver, devOutbox, digestMail, invitationMail, loginCodeMail, resetCodeMail } from "./mail.js";
+import { accessMail, deliver, devOutbox, digestMail, invitationMail, loginCodeMail, noAccessMail, resetCodeMail } from "./mail.js";
 import { buildBridgeWorkbook } from "./xlsx.js";
 
 /** Routes de WiBridge : toutes sous /api/bridge, avec leur propre session (voir session.ts). */
@@ -136,6 +136,8 @@ export async function registerBridgeRoutes(app: FastifyInstance) {
     throttle(`bridge-forgot:${b.data.email.toLowerCase()}`, 4);
     const r = await Bridge.bridgeStartReset(b.data.email);
     if (r.user && r.code) await mustDeliver(req, resetCodeMail(r.user.email, r.user.name, r.code));
+    // pas de compte WiBridge actif : un e-mail l'explique au titulaire de l'adresse (la réponse au demandeur ne change pas)
+    else if (r.noAccess) await deliver([noAccessMail(r.noAccess)], (m) => req.log.info(m)).catch((e) => req.log.error(e));
     return { challengeId: r.challengeId, ...(env.devShowOtp && r.code ? { devCode: r.code } : {}) };
   });
 
