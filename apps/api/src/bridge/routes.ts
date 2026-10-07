@@ -198,6 +198,7 @@ export async function registerBridgeRoutes(app: FastifyInstance) {
   app.delete("/api/bridge/c/:slug/questions/:id", async (req) => Bridge.deleteQuestion(await ctxOf(req), (req.params as P).id));
   app.get("/api/bridge/c/:slug/questions/:id/history", async (req) => Bridge.questionHistory(await ctxOf(req), (req.params as P).id));
   app.patch("/api/bridge/c/:slug/messages/:id", async (req) => Bridge.editMessage(await ctxOf(req), (req.params as P).id, req.body));
+  app.delete("/api/bridge/c/:slug/messages/:id", async (req) => Bridge.deleteMessage(await ctxOf(req), (req.params as P).id));
 
   // Pièces jointes : dépôt direct (corps binaire), lien de téléchargement signé de 5 minutes
   app.post("/api/bridge/c/:slug/files", { bodyLimit: Bridge.BRIDGE_MAX_FILE + 1024 * 1024 }, async (req) => {

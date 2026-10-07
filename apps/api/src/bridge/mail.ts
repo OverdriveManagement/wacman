@@ -95,6 +95,10 @@ export function resetCodeMail(to: string, name: string, code: string): Mail {
 
 const clientList = (clients: { name: string }[]) => (clients.length ? clients.map((c) => c.name).join(", ") : "");
 
+/** Rappel des notifications, désactivées par défaut. */
+const NOTIFY_NOTE =
+  "Par défaut, WiBridge ne vous envoie pas d'e-mail quand une question attend votre réponse : vous pouvez choisir un e-mail à chaque attribution ou un récapitulatif quotidien dans Mon compte (menu en haut à droite).";
+
 export function invitationMail(to: string, name: string, inviter: string, clients: { name: string; clientName: string }[], link: string, expiresAt: Date): Mail {
   const space = clientList(clients);
   const until = expiresAt.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric" });
@@ -108,10 +112,11 @@ export function invitationMail(to: string, name: string, inviter: string, client
         p(`${esc(inviter)} vous invite à rejoindre <b>WiBridge</b>, l'espace où Wifirst et ${esc(partner)} échangent leurs questions et leurs demandes d'éléments${space ? ` (${esc(space)})` : ""}.`) +
         p("Cliquez sur le bouton ci-dessous pour choisir votre mot de passe et activer votre compte :") +
         button(link, "Créer mon compte") +
-        small(`Ce lien est personnel et valable jusqu'au ${until}. Ensuite, la connexion se fait avec votre adresse e-mail et votre mot de passe ; un code vous est envoyé par e-mail à la première connexion depuis un nouvel appareil.`),
+        small(`Ce lien est personnel et valable jusqu'au ${until}. Ensuite, la connexion se fait avec votre adresse e-mail et votre mot de passe ; un code vous est envoyé par e-mail à la première connexion depuis un nouvel appareil.`) +
+        small(NOTIFY_NOTE),
       "Si vous ne vous attendiez pas à cette invitation, vous pouvez ignorer ce message.",
     ),
-    text: `Bonjour ${name},\n\n${inviter} vous invite à rejoindre WiBridge, l'espace où Wifirst et ${partner} échangent leurs questions${space ? ` (${space})` : ""}.\n\nCréez votre compte (choix du mot de passe) avec ce lien personnel, valable jusqu'au ${until} :\n${link}\n`,
+    text: `Bonjour ${name},\n\n${inviter} vous invite à rejoindre WiBridge, l'espace où Wifirst et ${partner} échangent leurs questions${space ? ` (${space})` : ""}.\n\nCréez votre compte (choix du mot de passe) avec ce lien personnel, valable jusqu'au ${until} :\n${link}\n\n${NOTIFY_NOTE}\n`,
   };
 }
 
@@ -125,9 +130,10 @@ export function accessMail(to: string, name: string, inviter: string, clients: {
       p(`Bonjour ${esc(name)},`) +
         p(`${esc(inviter)} vous a ouvert l'accès à <b>WiBridge</b>, l'espace d'échange de questions entre Wifirst et ses clients${space ? ` (${esc(space)})` : ""}.`) +
         p("Connectez-vous avec votre adresse e-mail et votre mot de passe habituel (le même que pour WacMan). Un code vous sera envoyé par e-mail à la première connexion depuis un nouvel appareil.") +
-        button(loginUrl, "Ouvrir WiBridge"),
+        button(loginUrl, "Ouvrir WiBridge") +
+        small(NOTIFY_NOTE),
     ),
-    text: `Bonjour ${name},\n\n${inviter} vous a ouvert l'accès à WiBridge${space ? ` (${space})` : ""}.\nConnectez-vous avec votre adresse e-mail et votre mot de passe habituel (le même que pour WacMan) : ${loginUrl}\n`,
+    text: `Bonjour ${name},\n\n${inviter} vous a ouvert l'accès à WiBridge${space ? ` (${space})` : ""}.\nConnectez-vous avec votre adresse e-mail et votre mot de passe habituel (le même que pour WacMan) : ${loginUrl}\n\n${NOTIFY_NOTE}\n`,
   };
 }
 

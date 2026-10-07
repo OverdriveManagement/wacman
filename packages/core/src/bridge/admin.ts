@@ -237,7 +237,7 @@ async function upsertMemberships(tx: Parameters<Parameters<typeof db.transaction
   for (const m of list) {
     await tx
       .insert(T.bridgeMembers)
-      .values({ userId, clientId: m.clientId, side: m.side, defaultAccess: m.defaultAccess, streamAccess: m.streamAccess, notify: m.notify ?? "IMMEDIATE" })
+      .values({ userId, clientId: m.clientId, side: m.side, defaultAccess: m.defaultAccess, streamAccess: m.streamAccess, notify: m.notify ?? "NONE" })
       .onConflictDoUpdate({
         target: [T.bridgeMembers.userId, T.bridgeMembers.clientId],
         set: { side: m.side, defaultAccess: m.defaultAccess, streamAccess: m.streamAccess, ...(m.notify ? { notify: m.notify } : {}) },

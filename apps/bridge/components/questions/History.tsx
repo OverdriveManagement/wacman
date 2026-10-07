@@ -19,6 +19,7 @@ const ACTION_LABEL: Record<string, string> = {
   close: "Clôture",
   reopen: "Réouverture",
   message_edit: "Message modifié",
+  message_delete: "Message supprimé",
   attach: "Pièce jointe",
   detach: "Pièce jointe",
   delete: "Suppression",

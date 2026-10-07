@@ -109,6 +109,7 @@ r = invite(WF, "Wendy Wifirst", "PROVIDER", "PROVIDER")
 check("invitation : mode invite et lien", r["mode"] == "invite" and r["sent"] and "/invitation#" in r.get("devLink", ""), str(r))
 mails = [m for m in outbox() if m["to"] == WF]
 check("e-mail d'invitation envoyé", bool(mails) and "Invitation" in mails[-1]["subject"] and "/invitation#" in mails[-1]["text"], str(mails[-1:])[:300])
+check("e-mail d'invitation : notifications à activer dans Mon compte", bool(mails) and "Mon compte" in mails[-1]["text"] and "ne vous envoie pas d'e-mail" in mails[-1]["text"])
 tok = r["devLink"].split("#")[1]
 x = S()
 st, res = x.req("POST", "/api/bridge/auth/invitation/accept", {"token": tok, "name": "Wendy", "password": "court"})
@@ -123,6 +124,8 @@ lp, *_ = accept(invite(LP, "Louise LaPoste", "CLIENT", "CLIENT"), "Louise LaPost
 rd, *_ = accept(invite(RD, "Rémi Lecteur", "CLIENT", "READ"), "Rémi Lecteur")
 sec, *_ = accept(invite(SEC, "Sacha Sécurité", "CLIENT", "NONE", {SID["Sécurité"]: "CLIENT"}), "Sacha Sécurité")
 both, *_ = accept(invite(BOTH, "Bastien Deux", "PROVIDER", "BOTH"), "Bastien Deux")
+st, me = lp.req("GET", "/api/bridge/auth/me")
+check("préférence par défaut : aucun e-mail", st == 200 and next(c for c in me["clients"] if c["slug"] == "la-poste")["notify"] == "NONE", str(me)[:300])
 
 # connexion sur un nouvel appareil : code, puis appareil de confiance ; sans confiance, le code revient
 d1 = S()
@@ -241,13 +244,13 @@ st, r = lp.req("POST", f"{base}/questions/{q1['id']}/messages", {"body": "Premie
 check("client : réponse partielle, attribution conservée", st == 200 and r["status"] == "IN_PROGRESS" and r["assignedParty"] == "CLIENT", str(r)[:200])
 m1 = r["messages"][-1]
 check("message : organisation et issue", m1["party"] == "CLIENT" and m1["outcome"] == "ASSIGN" and m1["assignedBefore"] == "CLIENT" and m1["assignedAfter"] == "CLIENT")
-check("message : modifiable par son auteur (dernier message)", m1["perms"]["edit"])
+check("message : modifiable et supprimable par son auteur", m1["perms"]["edit"] and m1["perms"]["delete"])
 st, r = lp.req("PATCH", f"{base}/messages/{m1['id']}", {"body": "Premiers éléments (extraction partielle), fichier complet la semaine prochaine."})
 check("client : modifie son dernier message", st == 200 and r["messages"][-1]["editedAt"], str(r)[:200])
 st, r = wf.req("POST", f"{base}/questions/{q1['id']}/messages", {"body": "Merci, nous attendons le fichier complet.", "outcome": "CLIENT"})
 check("Wifirst : relance, attribution et statut inchangés", st == 200 and r["assignedParty"] == "CLIENT" and r["status"] == "IN_PROGRESS", str(r)[:200])
-st, r = lp.req("PATCH", f"{base}/messages/{m1['id']}", {"body": "Trop tard"})
-check("client : message suivi d'une réponse, plus modifiable", st == 403, str(r))
+st, r = lp.req("PATCH", f"{base}/messages/{m1['id']}", {"body": "Premiers éléments (extraction partielle), fichier complet sous huit jours."})
+check("client : modifie son message même après une réponse", st == 200 and r["messages"][-2]["body"].endswith("sous huit jours."), str(r)[:200])
 st, r = wf.req("PATCH", f"{base}/messages/{m1['id']}", {"body": "Premiers éléments reçus par e-mail le 07/10."})
 check("Wifirst : modifie un message du client (peut tout changer)", st == 200, str(r)[:200])
 st, r = lp.req("POST", f"{base}/questions/{q1['id']}/messages", {"body": "Voici le fichier complet.", "outcome": "PROVIDER"})
@@ -318,6 +321,33 @@ st, r = lp.req("POST", f"{base}/questions/{q6['id']}/assign", {"party": "PROVIDE
 check("client : renvoie à Wifirst une question qui lui est attribuée", st == 200 and r["assignedParty"] == "PROVIDER", str(r)[:200])
 st, r = lp.req("POST", f"{base}/questions/{q6['id']}/assign", {"party": "CLIENT"})
 check("client : ne reprend pas une question attribuée à Wifirst", st == 403, str(r))
+
+# suppression d'une réponse par son auteur : texte retiré, issue et attribution conservées, trace à l'historique
+st, q7 = create(wf, f"Suppression {RUN}", ["Sécurité"], assignedParty="CLIENT")
+st, r = lp.req("POST", f"{base}/questions/{q7['id']}/messages", {"body": "Réponse à retirer", "outcome": "PROVIDER"})
+mid = r["messages"][-1]["id"]
+check("message : supprimable par son auteur", st == 200 and r["messages"][-1]["perms"]["delete"], str(r)[:200])
+st, r = sec.req("DELETE", f"{base}/messages/{mid}")
+check("autre membre du client : suppression refusée", st == 403, str(r))
+st, r = rd.req("DELETE", f"{base}/messages/{mid}")
+check("lecteur : suppression refusée", st in (403, 404), str(r))
+st, r = lp.req("DELETE", f"{base}/messages/{mid}")
+dm = r["messages"][-1] if st == 200 else {}
+check("auteur : réponse supprimée, texte retiré, issue conservée", st == 200 and dm["deletedAt"] and dm["body"] == "" and dm["deletedByName"] == "Louise LaPoste" and dm["outcome"] == "ASSIGN" and not dm["perms"]["edit"], str(r)[:300])
+check("suppression : attribution et statut inchangés, échange décompté", r["assignedParty"] == "PROVIDER" and r["status"] == "OPEN" and r["messageCount"] == 0 and r["lastMessage"] is None, str(r)[:300])
+st, r = lp.req("PATCH", f"{base}/messages/{mid}", {"body": "Retour"})
+check("message supprimé : plus modifiable", st == 404, str(r))
+st, r = lp.req("DELETE", f"{base}/messages/{mid}")
+check("message supprimé : pas de seconde suppression", st == 404, str(r))
+st, h = lp.req("GET", f"{base}/questions/{q7['id']}/history")
+ev = next((e for e in h if e["action"] == "message_delete"), None)
+check("historique : suppression et texte supprimé", bool(ev) and ev["changes"].get("message") == "Réponse à retirer" and ev["userName"] == "Louise LaPoste", str(ev)[:300])
+st, r = lp.req("GET", f"{base}/search?q=" + urllib.parse.quote("retirer"))
+check("recherche : rien dans une réponse supprimée", st == 200 and q7["id"] not in r["ids"], str(r))
+wf.req("POST", f"{base}/questions/{q7['id']}/assign", {"party": "CLIENT"})
+st, r = lp.req("POST", f"{base}/questions/{q7['id']}/messages", {"body": "Nouvelle réponse", "outcome": "PROVIDER"})
+st, r = wf.req("DELETE", f"{base}/messages/{r['messages'][-1]['id']}")
+check("Wifirst : supprime une réponse du client (peut tout changer)", st == 200, str(r)[:200])
 
 # historique
 st, h = lp.req("GET", f"{base}/questions/{q1['id']}/history")
@@ -405,6 +435,14 @@ check("historique : ajout et retrait de pièce jointe", "attach" in [e["action"]
 # ---------------------------------------------------------------------------
 # Notifications
 # ---------------------------------------------------------------------------
+# par défaut, aucun e-mail : chacun l'active dans Mon compte
+before = mark()
+create(wf, f"Notification 0 {RUN}", ["Sécurité"], assignedParty="CLIENT")
+time.sleep(1.5)
+to = {m["to"] for m in outbox(before)}
+check("par défaut : pas d'e-mail d'attribution", not (to & {LP, SEC, BOTH, RD}), str(to))
+for s_ in (wf, lp, rd, sec, both):
+    s_.req("POST", f"{base}/notify", {"notify": "IMMEDIATE"})
 before = mark()
 st, q8 = create(wf, f"Notification {RUN}", ["Sécurité"], assignedParty="CLIENT")
 time.sleep(1.5)

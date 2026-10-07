@@ -571,7 +571,8 @@ export const bridgeMembers = pgTable(
     defaultAccess: text("default_access").$type<BridgeAccess>().notNull().default("READ"),
     // droits propres à certains streams ({ streamId: droit }) ; les autres streams suivent le droit par défaut
     streamAccess: jsonb("stream_access").notNull().default({}).$type<Record<string, BridgeAccess>>(),
-    notify: text("notify").$type<BridgeNotify>().notNull().default("IMMEDIATE"),
+    // préférence d'e-mail propre à la personne (Mon compte) ; par défaut aucun e-mail
+    notify: text("notify").$type<BridgeNotify>().notNull().default("NONE"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -634,6 +635,9 @@ export const bridgeMessages = pgTable(
     assignedBefore: text("assigned_before").$type<BridgeParty>(), // vide si la question était clôturée
     assignedAfter: text("assigned_after").$type<BridgeParty>(), // vide si le message clôture la question
     editedAt: timestamp("edited_at", { withTimezone: true }),
+    // message supprimé par son auteur (ou par Wifirst) : le texte est retiré, l'issue reste affichée, le texte reste à l'historique
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedByName: text("deleted_by_name").notNull().default(""),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

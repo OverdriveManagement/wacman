@@ -13,7 +13,7 @@ import { IconDevice } from "@/components/icons";
 const NOTIFY: { id: Notify; label: string; hint: string }[] = [
   { id: "IMMEDIATE", label: "À chaque attribution", hint: "un e-mail dès qu'une question est attribuée à votre organisation" },
   { id: "DAILY", label: "Récapitulatif quotidien", hint: "un e-mail vers 8 h, du lundi au vendredi, s'il y a des questions à traiter" },
-  { id: "NONE", label: "Aucun e-mail", hint: "" },
+  { id: "NONE", label: "Aucun e-mail", hint: "réglage par défaut (les codes de connexion restent envoyés par e-mail)" },
 ];
 
 export default function AccountPage() {

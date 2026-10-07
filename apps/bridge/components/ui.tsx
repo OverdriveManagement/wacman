@@ -220,6 +220,7 @@ export function InlineText({
   disabled = false,
   className = "",
   render,
+  editRequest = 0,
 }: {
   value: string;
   onSave: (v: string) => Promise<unknown> | void;
@@ -228,8 +229,14 @@ export function InlineText({
   disabled?: boolean;
   className?: string;
   render?: (v: string) => ReactNode;
+  /** incrémenté par un bouton « Modifier » extérieur : passe en saisie */
+  editRequest?: number;
 }) {
   const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (editRequest && !disabled) setEditing(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest]);
   const [draft, setDraft] = useState(value);
   const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
   // pendant la saisie, un rafraîchissement venu du serveur n'écrase pas ce qui est en cours de frappe

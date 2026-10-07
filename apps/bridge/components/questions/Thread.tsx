@@ -9,7 +9,8 @@ import { useCl, useQuestionActions } from "../ClientContext";
 import { initials } from "../TopBar";
 import { Markdown } from "../Markdown";
 import { RichTextarea } from "../RichText";
-import { InlineText, Spinner, useSubmit } from "../ui";
+import { InlineText, Spinner, useConfirm, useSubmit } from "../ui";
+import { Menu } from "../Menu";
 import { AttachedFiles, PendingFiles, usePendingFiles } from "./Attachments";
 import { PartyTag, other, partyColor } from "./Tags";
 
@@ -91,32 +92,88 @@ export function Thread({ id }: { id: string }) {
       </div>
 
       {d.messages.map((m) => (
-        <div key={m.id} className="flex gap-2.5" data-message-id={m.id}>
-          <Avatar name={m.authorName} party={m.party} />
-          <div className="min-w-0 flex-1">
-            <Bubble party={m.party}>
-              <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-                <span className="font-semibold text-ink-2">{m.authorName || "Utilisateur supprimé"}</span>
-                <PartyTag party={m.party} />
-                <span title={dateTime(m.createdAt)}>{dateTime(m.createdAt)}</span>
-                <OutcomeBadge m={m} />
-                {m.editedAt && <span title={`Modifié le ${dateTime(m.editedAt)}`}>(modifié)</span>}
-              </div>
-              <InlineText
-                multiline
-                disabled={!m.perms.edit}
-                value={m.body}
-                placeholder="Ajouter un texte…"
-                className="text-sm text-ink-2"
-                onSave={(v) => act.editMessage(m.id, v)}
-              />
-              <AttachedFiles questionId={d.id} messageId={m.id} files={d.files.filter((f) => f.messageId === m.id)} canAdd={m.perms.edit} />
-            </Bubble>
-          </div>
-        </div>
+        <MessageItem key={m.id} d={d} m={m} />
       ))}
 
       <Composer d={d} />
+    </div>
+  );
+}
+
+/** Un message du fil : son auteur peut le modifier ou le supprimer (menu « ⋯ ») ; un message supprimé garde sa place et son issue. */
+function MessageItem({ d, m }: { d: QuestionDetail; m: Message }) {
+  const act = useQuestionActions();
+  const confirm = useConfirm();
+  const [editRequest, setEditRequest] = useState(0);
+  if (m.deletedAt)
+    return (
+      <div className="flex gap-2.5" data-message-id={m.id} data-deleted>
+        <Avatar name={m.authorName} party={m.party} />
+        <div className="min-w-0 flex-1">
+          <div className="rounded-xl border border-dashed border-line px-3 py-2 text-xs text-muted">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-semibold text-ink-2">{m.authorName || "Utilisateur supprimé"}</span>
+              <PartyTag party={m.party} />
+              <span title={dateTime(m.createdAt)}>{dateTime(m.createdAt)}</span>
+              <OutcomeBadge m={m} />
+            </div>
+            <p className="mt-1 italic">
+              Réponse supprimée{m.deletedByName ? ` par ${m.deletedByName}` : ""} le {dateTime(m.deletedAt)}.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  const items = [
+    ...(m.perms.edit ? [{ label: "Modifier la réponse", onClick: () => setEditRequest((n) => n + 1) }] : []),
+    ...(m.perms.delete
+      ? [
+          {
+            label: "Supprimer la réponse",
+            danger: true,
+            onClick: () =>
+              confirm.ask(
+                "Supprimer la réponse",
+                "Le texte et les pièces jointes de cette réponse seront retirés des échanges. L'attribution et le statut de la question ne changent pas ; la suppression reste visible dans l'historique.",
+                async () => {
+                  await act.deleteMessage(m.id);
+                  toast("success", "Réponse supprimée.");
+                },
+              ),
+          },
+        ]
+      : []),
+  ];
+  return (
+    <div className="flex gap-2.5" data-message-id={m.id}>
+      <Avatar name={m.authorName} party={m.party} />
+      <div className="min-w-0 flex-1">
+        <Bubble party={m.party}>
+          <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <span className="font-semibold text-ink-2">{m.authorName || "Utilisateur supprimé"}</span>
+            <PartyTag party={m.party} />
+            <span title={dateTime(m.createdAt)}>{dateTime(m.createdAt)}</span>
+            <OutcomeBadge m={m} />
+            {m.editedAt && <span title={`Modifié le ${dateTime(m.editedAt)}`}>(modifié)</span>}
+            {items.length > 0 && (
+              <span className="ml-auto">
+                <Menu label="Options de la réponse" items={items} />
+              </span>
+            )}
+          </div>
+          <InlineText
+            multiline
+            disabled={!m.perms.edit}
+            value={m.body}
+            placeholder="Ajouter un texte…"
+            className="text-sm text-ink-2"
+            editRequest={editRequest}
+            onSave={(v) => act.editMessage(m.id, v)}
+          />
+          <AttachedFiles questionId={d.id} messageId={m.id} files={d.files.filter((f) => f.messageId === m.id)} canAdd={m.perms.edit} />
+        </Bubble>
+      </div>
+      {confirm.node}
     </div>
   );
 }

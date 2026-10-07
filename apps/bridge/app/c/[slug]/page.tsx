@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { download, fetcher } from "@/lib/api";
 import { dateTime, frDate, isOverdue, relative, todayIso } from "@/lib/format";
@@ -432,7 +432,7 @@ function QuestionsView() {
               <tbody>
                 {list.map((x) => (
                   <Fragment key={x.id}>
-                    <Row q={x} open={openIds.has(x.id)} onToggle={() => toggle(x.id)} onHistory={() => setHistory(x)} flash={flash === x.ref} />
+                    <Row q={x} open={openIds.has(x.id)} onToggle={() => toggle(x.id)} onExpand={() => toggle(x.id, true)} onHistory={() => setHistory(x)} flash={flash === x.ref} />
                     {openIds.has(x.id) && (
                       <tr className="thread-row">
                         <td colSpan={HEAD.length + 2}>
@@ -449,7 +449,7 @@ function QuestionsView() {
           /* mobile et tablette : une carte par question */
           <div className="space-y-2.5">
             {list.map((x) => (
-              <CardItem key={x.id} q={x} open={openIds.has(x.id)} onToggle={() => toggle(x.id)} onHistory={() => setHistory(x)} flash={flash === x.ref} />
+              <CardItem key={x.id} q={x} open={openIds.has(x.id)} onToggle={() => toggle(x.id)} onExpand={() => toggle(x.id, true)} onHistory={() => setHistory(x)} flash={flash === x.ref} />
             ))}
           </div>
           )}
@@ -583,7 +583,7 @@ function RowMenu({ q }: { q: Question }) {
 function Exchanges({ q, open, onToggle }: { q: Question; open: boolean; onToggle: () => void }) {
   const cl = useCl();
   return (
-    <button className="group w-full text-left" onClick={onToggle} aria-expanded={open} aria-label={`${q.messageCount} échange(s) : ${open ? "masquer" : "afficher"}`}>
+    <button className="group w-full text-left" data-row-toggle onClick={onToggle} aria-expanded={open} aria-label={`${q.messageCount} échange(s) : ${open ? "masquer" : "afficher"}`}>
       <span className="text-sm font-semibold text-ink-2 group-hover:text-accent">
         {q.messageCount === 0 ? "Aucune réponse" : `${q.messageCount} échange${q.messageCount > 1 ? "s" : ""}`}
         {q.fileCount > 0 && (
@@ -610,7 +610,7 @@ function Subject({ q, onExpand }: { q: Question; onExpand: () => void }) {
   const act = useQuestionActions();
   if (!q.perms.edit || q.deletedAt)
     return (
-      <button className="text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-accent" onClick={onExpand}>
+      <button className="text-left text-sm font-semibold text-ink [overflow-wrap:anywhere] hover:text-accent" data-row-toggle onClick={onExpand}>
         {q.subject}
       </button>
     );
@@ -646,23 +646,47 @@ function Due({ q, small = false }: { q: Question; small?: boolean }) {
   return <DateTag small={small} label="Échéance" disabled={!q.perms.edit || !!q.deletedAt} value={q.dueDate} danger={late} onChange={(v) => act.update(q.id, { dueDate: v })} />;
 }
 
-function Row({ q, open, onToggle, onHistory, flash }: { q: Question; open: boolean; onToggle: () => void; onHistory: () => void; flash: boolean }) {
+/**
+ * Un clic n'importe où sur une question repliée la déplie. Sur le sujet et le texte (`data-expand-only`), ce premier clic
+ * ne fait que déplier : ils se modifient ensuite d'un clic, la question dépliée. Sur une étiquette (streams, attribution,
+ * statut, échéance), le choix s'ouvre en plus. La flèche, le numéro et les échanges plient et déplient ; une sélection
+ * de texte ne déplie pas.
+ */
+function expandOnClick(open: boolean, onExpand: () => void) {
+  return (e: ReactMouseEvent<HTMLElement>) => {
+    if (open) return;
+    const target = e.target instanceof Element ? e.target : null;
+    if (target?.closest("[data-row-toggle]")) return;
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.anchorNode && e.currentTarget.contains(sel.anchorNode)) return;
+    onExpand();
+    if (target?.closest("[data-expand-only]")) e.stopPropagation();
+  };
+}
+
+function Row({ q, open, onToggle, onExpand, onHistory, flash }: { q: Question; open: boolean; onToggle: () => void; onExpand: () => void; onHistory: () => void; flash: boolean }) {
   const stripe = q.status === "CLOSED" ? "transparent" : partyColor(q.assignedParty);
   return (
-    <tr className={`${open ? "row-open" : ""} ${flash ? "flash" : ""} ${q.status === "CLOSED" ? "opacity-75" : ""}`} data-question-ref={q.ref}>
+    <tr
+      className={`${open ? "row-open" : "cursor-pointer"} ${flash ? "flash" : ""} ${q.status === "CLOSED" ? "opacity-75" : ""}`}
+      data-question-ref={q.ref}
+      onClickCapture={expandOnClick(open, onExpand)}
+    >
       <td style={{ boxShadow: `inset 3px 0 0 ${stripe}` }}>
-        <button className="mt-0.5 rounded p-0.5 text-muted transition hover:bg-surface-3 hover:text-ink" onClick={onToggle} aria-expanded={open} aria-label={open ? "Masquer les échanges" : "Afficher les échanges"}>
+        <button className="mt-0.5 rounded p-0.5 text-muted transition hover:bg-surface-3 hover:text-ink" data-row-toggle onClick={onToggle} aria-expanded={open} aria-label={open ? "Masquer les échanges" : "Afficher les échanges"}>
           <IconChevron className={`transition ${open ? "rotate-90" : ""}`} width={16} height={16} />
         </button>
       </td>
       <td className="whitespace-nowrap text-xs font-semibold text-muted">
-        <button onClick={onToggle} className="hover:text-accent">
+        <button data-row-toggle onClick={onToggle} className="hover:text-accent">
           n°{q.ref}
         </button>
       </td>
       <td>
-        <Subject q={q} onExpand={onToggle} />
-        {!open && <Body q={q} />}
+        <div data-expand-only>
+          <Subject q={q} onExpand={onToggle} />
+          {!open && <Body q={q} />}
+        </div>
       </td>
       <td>
         <StreamsTag q={q} />
@@ -705,14 +729,14 @@ function Row({ q, open, onToggle, onHistory, flash }: { q: Question; open: boole
   );
 }
 
-function CardItem({ q, open, onToggle, onHistory, flash }: { q: Question; open: boolean; onToggle: () => void; onHistory: () => void; flash: boolean }) {
+function CardItem({ q, open, onToggle, onExpand, onHistory, flash }: { q: Question; open: boolean; onToggle: () => void; onExpand: () => void; onHistory: () => void; flash: boolean }) {
   const cl = useCl();
   const stripe = q.status === "CLOSED" ? "var(--border)" : partyColor(q.assignedParty);
   return (
     <div className={`card overflow-hidden ${flash ? "flash" : ""}`} style={{ borderLeft: `3px solid ${stripe}` }} data-question-ref={q.ref}>
-      <div className="space-y-1.5 p-3">
+      <div className={`space-y-1.5 p-3 ${open ? "" : "cursor-pointer"}`} onClickCapture={expandOnClick(open, onExpand)}>
         <div className="flex flex-wrap items-center gap-1.5">
-          <button onClick={onToggle} className="text-xs font-semibold text-muted hover:text-accent">
+          <button data-row-toggle onClick={onToggle} className="text-xs font-semibold text-muted hover:text-accent">
             n°{q.ref}
           </button>
           <StatusTag q={q} />
@@ -724,8 +748,10 @@ function CardItem({ q, open, onToggle, onHistory, flash }: { q: Question; open: 
             <RowMenu q={q} />
           </span>
         </div>
-        <Subject q={q} onExpand={onToggle} />
-        {!open && <Body q={q} />}
+        <div data-expand-only className="space-y-1.5">
+          <Subject q={q} onExpand={onToggle} />
+          {!open && <Body q={q} />}
+        </div>
         <StreamsTag q={q} wrap />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span>

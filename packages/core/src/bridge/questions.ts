@@ -101,8 +101,10 @@ export function questionPerms(ctx: BridgeCtx, q: Pick<QuestionRow, "askedById" |
   };
 }
 
-function canEditMessage(ctx: BridgeCtx, role: Role, m: Pick<MessageRow, "authorId" | "party">, isLast: boolean) {
-  return role.su || role.providerAll || (m.authorId === ctx.user.id && role.parties.has(m.party) && isLast);
+/** Modifier ou supprimer un message : son auteur (avec ses droits sur l'organisation du message), Wifirst avec la règle « tout modifier », le super-administrateur. */
+function canEditMessage(ctx: BridgeCtx, role: Role, m: Pick<MessageRow, "authorId" | "party" | "deletedAt">) {
+  if (m.deletedAt) return false;
+  return role.su || role.providerAll || (m.authorId === ctx.user.id && role.parties.has(m.party));
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +132,7 @@ async function loadQuestion(ctx: BridgeCtx, idOrRef: string, tx: Tx = db, opts: 
   const streamIds = (await tx.select({ s: T.bridgeQuestionStreams.streamId }).from(T.bridgeQuestionStreams).where(eq(T.bridgeQuestionStreams.questionId, q.id))).map((r) => r.s);
   // une question hors de ses streams n'existe pas pour l'utilisateur (404 plutôt que 403 : rien n'est révélé)
   if (!canSeeQuestion(ctx, streamIds)) throw notFound("Question introuvable.");
-  const [{ n }] = await tx.select({ n: sql<number>`count(*)::int` }).from(T.bridgeMessages).where(eq(T.bridgeMessages.questionId, q.id));
+  const [{ n }] = await tx.select({ n: sql<number>`count(*)::int` }).from(T.bridgeMessages).where(and(eq(T.bridgeMessages.questionId, q.id), isNull(T.bridgeMessages.deletedAt)));
   return { q, streamIds: sortStreams(ctx, streamIds), messageCount: n };
 }
 
@@ -199,7 +201,7 @@ export async function listQuestions(ctx: BridgeCtx, opts: { deleted?: boolean } 
     db
       .select({ q: T.bridgeMessages.questionId, n: sql<number>`count(*)::int` })
       .from(T.bridgeMessages)
-      .where(eq(T.bridgeMessages.clientId, cid))
+      .where(and(eq(T.bridgeMessages.clientId, cid), isNull(T.bridgeMessages.deletedAt)))
       .groupBy(T.bridgeMessages.questionId),
     db
       .selectDistinctOn([T.bridgeMessages.questionId], {
@@ -212,7 +214,7 @@ export async function listQuestions(ctx: BridgeCtx, opts: { deleted?: boolean } 
         assignedAfter: T.bridgeMessages.assignedAfter,
       })
       .from(T.bridgeMessages)
-      .where(eq(T.bridgeMessages.clientId, cid))
+      .where(and(eq(T.bridgeMessages.clientId, cid), isNull(T.bridgeMessages.deletedAt)))
       .orderBy(T.bridgeMessages.questionId, desc(T.bridgeMessages.createdAt)),
     db
       .select({ q: T.bridgeFiles.questionId, n: sql<number>`count(*)::int` })
@@ -258,14 +260,15 @@ export async function getQuestion(ctx: BridgeCtx, idOrRef: string, tx: Tx = db) 
   ]);
   const role = roleOn(ctx, l.q, l.streamIds);
   const perms = questionPerms(ctx, l.q, l.streamIds, l.messageCount);
-  const lastMsg = messages[messages.length - 1];
+  const live = messages.filter((m) => !m.deletedAt);
+  const lastMsg = live[live.length - 1];
   const canDeleteFile = (f: (typeof files)[number]) => {
     if (l.q.deletedAt) return false;
     if (role.su || role.providerAll) return true;
     if (f.uploadedById !== ctx.user.id) return false;
     if (!f.messageId) return perms.edit;
     const m = messages.find((x) => x.id === f.messageId);
-    return !!m && canEditMessage(ctx, role, m, m.id === lastMsg?.id);
+    return !!m && canEditMessage(ctx, role, m);
   };
   return {
     ...listItem(ctx, l, {
@@ -277,13 +280,19 @@ export async function getQuestion(ctx: BridgeCtx, idOrRef: string, tx: Tx = db) 
       authorId: m.authorId,
       authorName: m.authorName,
       party: m.party,
-      body: m.body,
+      // un message supprimé garde sa place (et son issue) dans le fil, sans son texte
+      body: m.deletedAt ? "" : m.body,
       outcome: m.outcome,
       assignedBefore: m.assignedBefore,
       assignedAfter: m.assignedAfter,
       editedAt: m.editedAt,
+      deletedAt: m.deletedAt,
+      deletedByName: m.deletedByName,
       createdAt: m.createdAt,
-      perms: { edit: !l.q.deletedAt && canEditMessage(ctx, role, m, m.id === lastMsg?.id) },
+      perms: (() => {
+        const ok = !l.q.deletedAt && canEditMessage(ctx, role, m);
+        return { edit: ok, delete: ok };
+      })(),
     })),
     files: files.map((f) => ({ ...f, perms: { delete: canDeleteFile(f) } })),
   };
@@ -309,7 +318,7 @@ export async function searchQuestions(ctx: BridgeCtx, q: string) {
     db
       .select({ id: T.bridgeMessages.questionId })
       .from(T.bridgeMessages)
-      .where(and(eq(T.bridgeMessages.clientId, cid), or(like(T.bridgeMessages.body), like(T.bridgeMessages.authorName)))),
+      .where(and(eq(T.bridgeMessages.clientId, cid), isNull(T.bridgeMessages.deletedAt), or(like(T.bridgeMessages.body), like(T.bridgeMessages.authorName)))),
     db
       .select({ id: T.bridgeFiles.questionId })
       .from(T.bridgeFiles)
@@ -640,20 +649,10 @@ export async function editMessage(ctx: BridgeCtx, messageId: string, input: unkn
       .where(and(eq(T.bridgeMessages.id, messageId), eq(T.bridgeMessages.clientId, ctx.client.id)))
       .for("update");
     if (!m) throw notFound("Message introuvable.");
+    if (m.deletedAt) throw notFound("Ce message a été supprimé.");
     const l = await loadQuestion(ctx, m.questionId, tx);
     const role = roleOn(ctx, l.q, l.streamIds);
-    // comparaison faite en base : les dates PostgreSQL sont à la microseconde, celles de JavaScript à la milliseconde
-    const [later] = await tx
-      .select({ id: T.bridgeMessages.id })
-      .from(T.bridgeMessages)
-      .where(
-        and(
-          eq(T.bridgeMessages.questionId, m.questionId),
-          sql`${T.bridgeMessages.createdAt} > (select created_at from bridge_messages where id = ${m.id})`,
-        ),
-      )
-      .limit(1);
-    if (!canEditMessage(ctx, role, m, !later)) throw forbidden(later && m.authorId === ctx.user.id ? "Ce message a reçu une suite : il ne peut plus être modifié." : "Vous ne pouvez pas modifier ce message.");
+    if (!canEditMessage(ctx, role, m)) throw forbidden("Vous ne pouvez pas modifier ce message.");
     if (body === m.body) return l.q.id;
     if (!body.trim()) {
       const [f] = await tx.select({ id: T.bridgeFiles.id }).from(T.bridgeFiles).where(eq(T.bridgeFiles.messageId, m.id)).limit(1);
@@ -663,6 +662,42 @@ export async function editMessage(ctx: BridgeCtx, messageId: string, input: unkn
     await tx.update(T.bridgeQuestions).set({ lastActivityAt: new Date() }).where(eq(T.bridgeQuestions.id, l.q.id));
     const when = m.createdAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
     await bridgeEvent(ctx, l.q.id, "message_edit", `Message de ${label(ctx, m.party)} (${m.authorName}) du ${when} modifié`, { message: [keep(m.body), keep(body)] }, null, tx);
+    return l.q.id;
+  });
+  return getQuestion(ctx, id);
+}
+
+/**
+ * Supprime un message : son texte et ses pièces jointes sont retirés du fil, où une mention « Réponse supprimée » reste
+ * à sa place avec son issue. L'attribution et le statut de la question ne changent pas. Le texte reste à l'historique.
+ */
+export async function deleteMessage(ctx: BridgeCtx, messageId: string) {
+  if (!isUuid(messageId)) throw notFound("Message introuvable.");
+  const id = await db.transaction(async (tx) => {
+    const [m] = await tx
+      .select()
+      .from(T.bridgeMessages)
+      .where(and(eq(T.bridgeMessages.id, messageId), eq(T.bridgeMessages.clientId, ctx.client.id)))
+      .for("update");
+    if (!m) throw notFound("Message introuvable.");
+    if (m.deletedAt) throw notFound("Ce message a déjà été supprimé.");
+    const l = await loadQuestion(ctx, m.questionId, tx);
+    const role = roleOn(ctx, l.q, l.streamIds);
+    if (!canEditMessage(ctx, role, m)) throw forbidden("Vous ne pouvez pas supprimer ce message.");
+    const now = new Date();
+    const files = await tx.delete(T.bridgeFiles).where(eq(T.bridgeFiles.messageId, m.id)).returning({ name: T.bridgeFiles.name });
+    await tx.update(T.bridgeMessages).set({ body: "", deletedAt: now, deletedByName: ctx.user.name }).where(eq(T.bridgeMessages.id, m.id));
+    await tx.update(T.bridgeQuestions).set({ lastActivityAt: now }).where(eq(T.bridgeQuestions.id, l.q.id));
+    const when = m.createdAt.toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    await bridgeEvent(
+      ctx,
+      l.q.id,
+      "message_delete",
+      `Message de ${label(ctx, m.party)} (${m.authorName}) du ${when} supprimé par ${ctx.user.name}`,
+      { message: keep(m.body), ...(files.length ? { files: files.map((f) => f.name) } : {}) },
+      null,
+      tx,
+    );
     return l.q.id;
   });
   return getQuestion(ctx, id);
@@ -694,6 +729,12 @@ export async function restoreQuestion(ctx: BridgeCtx, idOrRef: string) {
 export async function exportRows(ctx: BridgeCtx) {
   const list = await listQuestions(ctx);
   const ids = list.map((q) => q.id);
-  const messages = ids.length ? await db.select().from(T.bridgeMessages).where(inArray(T.bridgeMessages.questionId, ids)).orderBy(asc(T.bridgeMessages.createdAt)) : [];
+  const messages = ids.length
+    ? await db
+        .select()
+        .from(T.bridgeMessages)
+        .where(and(inArray(T.bridgeMessages.questionId, ids), isNull(T.bridgeMessages.deletedAt)))
+        .orderBy(asc(T.bridgeMessages.createdAt))
+    : [];
   return { list, messages };
 }

@@ -210,6 +210,29 @@ with sync_playwright() as p:
     pg.wait_for_timeout(700)
     check("streams modifiés en place", wf_api.req("GET", f"{BASE}/questions/{atm['id']}")[1]["streamIds"] == [SID["Déploiement"]])
 
+    # clic n'importe où sur une question repliée : elle se déplie ; le sujet ne passe en édition qu'une fois dépliée
+    other = f"tr[data-question-ref='{q_cal['ref']}']"
+    thread_cal = f"[data-thread='{q_cal['ref']}']"
+    check("question repliée au départ", pg.locator(thread_cal).count() == 0)
+    pg.click(f"{other} td:nth-child(10)")  # colonne Mise à jour, sans bouton
+    pg.wait_for_selector(thread_cal)
+    check("clic sur la ligne : question dépliée", pg.locator(thread_cal).count() == 1)
+    pg.click(f"{other} button[aria-label='Masquer les échanges']")
+    pg.wait_for_timeout(300)
+    check("flèche : question repliée", pg.locator(thread_cal).count() == 0)
+    pg.click(f"{other} td:nth-child(3) [role=button]")
+    pg.wait_for_selector(thread_cal)
+    check("clic sur le sujet d'une question repliée : dépliée, sans édition", pg.locator(f"{other} input.input").count() == 0)
+    pg.click(f"{other} td:nth-child(3) [role=button]")
+    check("sujet modifiable une fois la question dépliée", pg.locator(f"{other} input.input").count() == 1)
+    pg.keyboard.press("Escape")
+    pg.click(f"{other} button[aria-label='Masquer les échanges']")
+    pg.wait_for_timeout(300)
+    pg.click(f"{other} button[aria-label^='Statut']")
+    pg.wait_for_selector("#wib-popover")
+    check("clic sur une étiquette : choix ouvert et question dépliée", pg.locator(thread_cal).count() == 1)
+    pg.keyboard.press("Escape")
+
     # tri par colonne
     pg.click("thead button[data-sort=ref]")
     pg.wait_for_timeout(200)
@@ -258,8 +281,8 @@ with sync_playwright() as p:
     pg.screenshot(path=f"{OUT}/bridge_history.png")
     pg.keyboard.press("Escape")
 
-    # pièce jointe : ouverture par lien signé direct sur l'API (les filtres ont replié la question : on la rouvre)
-    pg.click(f"{row} button[aria-label='Afficher les échanges']")
+    # pièce jointe : ouverture par lien signé direct sur l'API (le clic sur l'historique a déplié la question)
+    check("clic sur l'historique : question dépliée", pg.locator(f"[data-thread='{atm['ref']}']").count() == 1)
     pg.wait_for_selector(f"[data-thread='{atm['ref']}'] button[title='Ouvrir atm_{RUN}.xlsx']")
     with pg.expect_response(lambda r: "/files/" in r.url and r.url.endswith("/link")) as resp:
         with pg.expect_download() as dl:
@@ -289,6 +312,18 @@ with sync_playwright() as p:
     d = lp_api.req("GET", f"{BASE}/questions/{atm['id']}")[1]
     check("réponse partielle : en cours, toujours La Poste", d["status"] == "IN_PROGRESS" and d["assignedParty"] == "CLIENT" and d["messages"][-1]["body"].startswith("Nous avons"), str(d)[:200])
     check("statut affiché : En cours", "En cours" in pl.inner_text(f"tr[data-question-ref='{atm['ref']}']"))
+    # l'auteur modifie sa réponse par le menu « ⋯ » de la réponse
+    mid = d["messages"][-1]["id"]
+    msg = f"{th} [data-message-id='{mid}']"
+    opts = f"{msg} button[aria-label='Options de la réponse']"
+    pl.locator(opts).scroll_into_view_if_needed()
+    pl.wait_for_timeout(250)
+    pl.click(opts)
+    pl.click("[role=menuitem]:has-text('Modifier la réponse')")
+    pl.fill(f"{msg} textarea", "Nous avons une première extraction partielle (300 ATM).")
+    pl.click("h1")  # clic à l'extérieur : enregistrement
+    pl.wait_for_timeout(800)
+    check("réponse modifiée par son auteur", lp_api.req("GET", f"{BASE}/questions/{atm['id']}")[1]["messages"][-1]["body"].endswith("(300 ATM)."))
     pl.fill(f"{th} textarea[aria-label='Votre réponse']", "Voici la liste complète.")
     pl.set_input_files(f"{th} input[type=file] >> nth=-1", os.path.join(OUT, f"atm_{RUN}.xlsx"))
     pl.wait_for_timeout(800)
@@ -297,6 +332,17 @@ with sync_playwright() as p:
     d = lp_api.req("GET", f"{BASE}/questions/{atm['id']}")[1]
     check("réponse avec fichier : attribuée à Wifirst", d["assignedParty"] == "PROVIDER" and d["status"] == "OPEN" and len(d["files"]) == 2, str(d)[:300])
     check("plus de zone de réponse côté La Poste", "vous pourrez y répondre quand elle sera attribuée à votre organisation" in pl.inner_text(th))
+    # l'auteur supprime une réponse plus ancienne : la mention reste à sa place, l'attribution ne change pas
+    pl.locator(opts).scroll_into_view_if_needed()
+    pl.wait_for_timeout(250)
+    pl.click(opts)
+    pl.click("[role=menuitem]:has-text('Supprimer la réponse')")
+    pl.click("[role=dialog] button:has-text('Confirmer')")
+    pl.wait_for_timeout(900)
+    d = lp_api.req("GET", f"{BASE}/questions/{atm['id']}")[1]
+    gone = next(x for x in d["messages"] if x["id"] == mid)
+    check("réponse supprimée par son auteur, attribution inchangée", bool(gone["deletedAt"]) and gone["body"] == "" and d["assignedParty"] == "PROVIDER", str(gone)[:200])
+    check("fil : mention de la réponse supprimée", "Réponse supprimée par Marie Durand" in pl.inner_text(msg))
     pl.screenshot(path=f"{OUT}/bridge_client_thread.png", full_page=True)
     # le client ne modifie pas le sujet d'une question de Wifirst
     pl.click(f"tr[data-question-ref='{q_sec['ref']}'] >> text=Contacts sécurité")
@@ -360,8 +406,9 @@ with sync_playwright() as p:
     check("mobile : filtres dépliés", pm.is_visible("[role=radiogroup][aria-label=Statut]"))
     pm.click("button:has-text('Filtres')")
     card = f"div[data-question-ref='{q_sec['ref']}']"
-    pm.click(f"{card} button[aria-label*='échange']")
+    pm.click(f"{card} >> text=Posée par")  # un toucher n'importe où sur la carte la déplie
     pm.wait_for_selector(f"[data-thread='{q_sec['ref']}'] textarea")
+    check("mobile : carte dépliée par un toucher", pm.locator(f"[data-thread='{q_sec['ref']}']").count() == 1)
     pm.fill(f"[data-thread='{q_sec['ref']}'] textarea[aria-label='Votre réponse']", "Il faut passer par la DSEM.")
     pm.screenshot(path=f"{OUT}/bridge_mobile_light.png", full_page=False)
     el = pm.locator(f"[data-thread='{q_sec['ref']}']")

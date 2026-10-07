@@ -6,7 +6,7 @@ WiBridge est une interface autonome, publiée sur Vercel à l'adresse https://wi
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt. L'architecture commune est décrite dans `ARCHITECTURE.md` (partie WiBridge) et l'hébergement dans `EXPLOITATION.md`.
 
-Version courante : **V1.0** (7 octobre 2026).
+Version courante : **V1.1** (7 octobre 2026).
 
 ---
 
@@ -74,7 +74,7 @@ Un lien expiré, déjà utilisé ou remplacé affiche un message clair. Le super
 ### 4.3 Mon compte
 Menu utilisateur (rond avec les initiales), « Mon compte » :
 - **Profil** : nom affiché.
-- **Notifications par e-mail**, pour chaque client : « À chaque attribution » (par défaut), « Récapitulatif quotidien », « Aucun e-mail ».
+- **Notifications par e-mail**, pour chaque client : « À chaque attribution », « Récapitulatif quotidien » ou « Aucun e-mail » (par défaut). Chacun active ses e-mails ici (partie 9).
 - **Mot de passe** : changement (l'appareil courant reste de confiance, les autres redemandent un code).
 - **Appareils de confiance** : liste (navigateur et système, date d'ajout, dernière utilisation, « cet appareil »), retrait d'un appareil ou de tous.
 
@@ -106,7 +106,7 @@ Une question est visible dès que la personne voit l'un de ses streams. Le super
 | Changer l'attribution sans message | Toutes les questions ouvertes | Questions attribuées au client | Non |
 | Clôturer | Toutes les questions | Toutes les questions | Non |
 | Rouvrir | Oui | Oui | Non |
-| Modifier un message | Tous les messages | Son dernier message, tant qu'il n'a pas reçu de suite | Non |
+| Modifier ou supprimer une réponse | Toutes les réponses | Ses propres réponses, à tout moment | Non |
 | Supprimer une question | Les questions qu'il a posées, sans échange | Les questions qu'il a posées, sans échange | Non |
 
 Une question doit toujours garder au moins un stream auquel la personne qui la modifie a accès. Le super-administrateur peut tout faire, supprimer toute question et restaurer une question supprimée (corbeille).
@@ -122,7 +122,7 @@ Administration, client, rubrique Règles :
 | Clôture par le client : toutes les questions, ou celles qu'il a posées ou qui lui sont attribuées | Toutes |
 | E-mails de notification (attribution et récapitulatif quotidien), selon la préférence de chacun | Oui |
 
-Sans la règle « tout modifier », un éditeur Wifirst modifie ses propres questions, répond, clôture et rouvre, mais ne change l'attribution que des questions attribuées à Wifirst et ne modifie que son dernier message.
+Sans la règle « tout modifier », un éditeur Wifirst modifie ses propres questions, répond, clôture et rouvre, mais ne change l'attribution que des questions attribuées à Wifirst et ne modifie ou ne supprime que ses propres réponses.
 
 ## 6. Questions
 
@@ -167,10 +167,17 @@ Issue proposée par défaut : l'attributaire renvoie à l'autre organisation ; W
 - Étiquette de statut : un clic propose « Clôturer la question » ou, sur une question clôturée, « Rouvrir et attribuer à … ».
 - Bouton « Rouvrir la question » sous les échanges d'une question clôturée : au nom de (si les deux), motif facultatif, pièces jointes, attribution (par défaut l'autre organisation). La question repasse « À traiter » ; le motif et les pièces jointes apparaissent dans les échanges, la réouverture dans l'historique.
 
-### 6.6 Historique
-Bouton horloge de chaque question : tout ce qui s'est passé, du plus ancien au plus récent, avec l'auteur, son organisation, la date et l'heure : création (texte, streams, échéance, pièces jointes), modifications (sujet, texte avant et après, streams, échéance), réponses et leur issue, changements d'attribution, clôtures, réouvertures, pièces jointes ajoutées ou retirées, messages modifiés, suppression et restauration.
+### 6.6 Modifier ou supprimer une réponse
+Menu « ⋯ » d'une réponse, pour son auteur (et pour Wifirst avec la règle « tout modifier ») :
+- **Modifier la réponse** : le texte passe en saisie (barre de mise en forme ; clic à l'extérieur ou Ctrl+Entrée pour enregistrer, Échap pour annuler). La réponse porte ensuite la mention « (modifié) ». Un clic sur le texte d'une réponse modifiable produit le même effet.
+- **Supprimer la réponse**, après confirmation : le texte et les pièces jointes de la réponse sont retirés. À sa place, une mention « Réponse supprimée par … le … » garde l'issue de la réponse (par exemple « Attribuée à Wifirst »). L'attribution et le statut de la question ne changent pas : on les modifie au besoin par les étiquettes. La réponse supprimée ne compte plus dans les échanges, ni dans la recherche, ni dans l'export.
 
-### 6.7 Suppression
+Une réponse se modifie ou se supprime à tout moment, même si d'autres réponses l'ont suivie. Le texte d'avant et le texte supprimé restent à l'historique.
+
+### 6.7 Historique
+Bouton horloge de chaque question : tout ce qui s'est passé, du plus ancien au plus récent, avec l'auteur, son organisation, la date et l'heure : création (texte, streams, échéance, pièces jointes), modifications (sujet, texte avant et après, streams, échéance), réponses et leur issue, changements d'attribution, clôtures, réouvertures, pièces jointes ajoutées ou retirées, réponses modifiées (avant et après) ou supprimées (avec le texte supprimé), suppression et restauration de la question.
+
+### 6.8 Suppression d'une question
 La personne qui a posé une question peut la supprimer tant qu'elle n'a reçu aucun échange (menu « ⋯ » de la ligne). Le super-administrateur peut supprimer toute question et la restaurer depuis la corbeille (menu de l'en-tête, « Corbeille »). Une question supprimée disparaît des listes, des recherches, des exports et des e-mails.
 
 ## 7. Écran des questions
@@ -180,8 +187,9 @@ La personne qui a posé une question peut la supprimer tant qu'elle n'a reçu au
 - **Recherche** : sujet, texte, échanges, nom de l'auteur et numéro, sans tenir compte des accents.
 - **Filtres** : Ouvertes, Clôturées ou Toutes ; attribution (Tous, Wifirst, La Poste) ; stream ; « Mes questions » (posées par moi). Le statut, l'attribution, le stream et le tri sont mémorisés sur l'appareil ; « Réinitialiser » revient aux questions ouvertes.
 - **Tableau** (écran de 1 200 px et plus) : Réf., Sujet et question, Streams, Posée par et le, Attribuée à, Statut, Échanges, Échéance, Mise à jour. Un clic sur un en-tête trie la colonne, un second clic inverse l'ordre ; tri par défaut sur la mise à jour, la plus récente en tête. Les questions sans échéance restent en fin de liste quand on trie par échéance.
-- **Édition directe** dans la ligne, selon les droits : sujet et texte (clic sur le texte, barre de mise en forme, Échap pour annuler), streams, échéance, attribution, statut. Les valeurs sont des étiquettes cliquables, comme dans WacMan.
-- **Ligne dépliée** (flèche, numéro ou colonne Échanges) : échanges et zone de réponse. Une question dépliée reste affichée même si elle ne correspond plus aux filtres (clôturée ou réattribuée), jusqu'au prochain changement de filtre.
+- **Déplier une question** : un clic n'importe où sur la ligne (ou la carte sur mobile) déplie la question : échanges et zone de réponse. Sur le sujet ou le texte, ce premier clic ne fait que déplier ; sur une étiquette (streams, attribution, statut, échéance), il ouvre aussi le choix. La flèche, le numéro et la colonne Échanges plient et déplient. Sélectionner du texte dans la ligne ne la déplie pas.
+- **Édition directe**, selon les droits : une fois la question dépliée, un clic sur le sujet ou le texte passe en saisie (barre de mise en forme, Échap pour annuler) ; streams, échéance, attribution et statut sont des étiquettes cliquables, comme dans WacMan.
+- **Question dépliée** : elle reste affichée même si elle ne correspond plus aux filtres (clôturée ou réattribuée), jusqu'au prochain changement de filtre.
 - **Lien direct** : `/c/la-poste?q=12` ouvre la question n°12.
 - **Mobile et écran étroit** : une carte par question, filtres repliables, tri par liste (« Trier par »).
 - La liste se rafraîchit toute seule toutes les minutes.
@@ -199,11 +207,13 @@ La personne qui a posé une question peut la supprimer tant qu'elle n'a reçu au
 
 Expéditeur : `WiBridge <wibridge@omgt.fr>`. La personne qui agit ne reçoit jamais d'e-mail pour sa propre action. Objet du type « WiBridge La Poste : question n°12 à traiter par La Poste, Liste des ATM » ; le corps rappelle la question (numéro, sujet, extrait), le message reçu et donne le lien direct vers la question.
 
-- **À chaque attribution** (préférence par défaut) :
+Par défaut, aucun e-mail de notification n'est envoyé : chacun choisit sa préférence, client par client, dans Mon compte. L'e-mail d'invitation (ou d'accès ouvert) le rappelle. Les accès ouverts avant la V1.1 sont passés à « Aucun e-mail ».
+
+- **À chaque attribution** :
   - question attribuée à mon organisation (nouvelle question, réponse, changement d'attribution, réouverture) : envoyé aux éditeurs de cette organisation sur l'un des streams de la question ;
   - question clôturée, ou réponse qui conserve l'attribution : envoyé à la personne qui a posé la question.
 - **Récapitulatif quotidien** : du lundi au vendredi à partir de 8 h (heure de Paris), la liste des questions ouvertes attribuées à mon organisation, par échéance. Rien n'est envoyé s'il n'y a rien à traiter.
-- **Aucun e-mail**.
+- **Aucun e-mail** (par défaut).
 
 Un client archivé ou dont la règle « E-mails de notification » est désactivée n'envoie rien. Les codes de connexion et de mot de passe oublié, les invitations et les e-mails « accès ouvert » partent dans tous les cas.
 
@@ -251,3 +261,6 @@ Menu utilisateur, « Administration » :
 | Date | Demande | Effet |
 |---|---|---|
 | 07/10/2026 | Créer WiBridge en reprenant la configuration de WacMan (Railway, Resend, GitHub) : interface séparée et autonome sur Vercel (wibridge-wifirst.vercel.app), même backend que WacMan ; échange de questions et de demandes d'éléments entre Wifirst et son client (La Poste en premier), attribuées à l'une ou l'autre organisation, avec réponses, issues (attribuer à Wifirst, conserver l'attribution, clôturer) et réouverture ; droits Wifirst et client ; tableau trié par colonne et édition directe comme dans WacMan ; historique par question ; streams La Poste (Technico-fonctionnelle, Sécurité, Déploiement, Mainteneur Postal, Exploitation, Outillage & Data, Gouvernance) configurables ; comptes invités par le super-administrateur avec droits par client et par stream, code par e-mail sur un nouvel appareil ; comptes distincts de WacMan sauf le super-administrateur, sans lien entre les deux ; travail en autonomie et spécification | V1.0 : application `apps/bridge` (Vercel, projet `wibridge-wifirst`), routes `/api/bridge/*` de l'API commune, migration `0005_bridge` (client La Poste, 7 streams, accès du super-administrateur) ; comptes et sessions séparés de WacMan (2, 3) ; invitation, appareils de confiance et mot de passe oublié (4) ; droits par stream et règles réglables (5) ; questions, statuts, issues, réouverture, historique, corbeille (6) ; tableau, filtres, recherche, lien direct, mobile (7) ; pièces jointes (8) ; e-mails d'attribution et récapitulatif quotidien (9) ; export Excel (10) ; administration (11) |
+| 07/10/2026 | Par défaut, pas de notification par e-mail pour les utilisateurs, chacun pouvant changer l'option dans ses paramètres | V1.1 : préférence « Aucun e-mail » par défaut (migration `0006_bridge_notify_default`, accès existants passés à « Aucun e-mail ») ; rappel dans les e-mails d'invitation et d'accès ; préférence toujours réglable dans Mon compte (4.3, 9) |
+| 07/10/2026 | Un clic n'importe où sur une ligne de question doit déplier la question | V1.1 : clic sur la ligne ou la carte pour déplier ; sur le sujet et le texte, le premier clic ne fait que déplier, l'édition se fait ensuite ; sur une étiquette, le choix s'ouvre aussi (7) |
+| 07/10/2026 | Permettre à un utilisateur de modifier ou de supprimer ses réponses | V1.1 : menu « ⋯ » d'une réponse (Modifier, Supprimer avec confirmation) ; l'auteur modifie ou supprime ses réponses à tout moment ; une réponse supprimée laisse une mention avec son issue, sans changer l'attribution ni le statut ; trace à l'historique (migration `0007_bridge_message_delete`) (5.2, 6.6, 6.7) |

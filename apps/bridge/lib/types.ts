@@ -106,8 +106,11 @@ export interface Message {
   assignedBefore: Party | null;
   assignedAfter: Party | null;
   editedAt: string | null;
+  /** message supprimé : texte retiré, issue conservée */
+  deletedAt: string | null;
+  deletedByName: string;
   createdAt: string;
-  perms: { edit: boolean };
+  perms: { edit: boolean; delete: boolean };
 }
 
 export interface FileInfo {

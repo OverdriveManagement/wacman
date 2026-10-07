@@ -45,6 +45,7 @@ export function useQuestionActions() {
     reopen: (id: string, json: { party?: Party; as?: Party; body?: string; fileIds?: string[] }) => apply(post(`/questions/${id}/reopen`, json)),
     respond: (id: string, json: { body: string; party?: Party; outcome: Party | "CLOSE"; fileIds?: string[] }) => apply(post(`/questions/${id}/messages`, json)),
     editMessage: (messageId: string, body: string) => apply(api<QuestionDetail>(`${base}/messages/${messageId}`, { method: "PATCH", json: { body } })),
+    deleteMessage: (messageId: string) => apply(api<QuestionDetail>(`${base}/messages/${messageId}`, { method: "DELETE" })),
     remove: async (id: string) => {
       await api(`${base}/questions/${id}`, { method: "DELETE" });
       await mutate(listKey);
