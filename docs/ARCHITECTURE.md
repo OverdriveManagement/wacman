@@ -9,8 +9,13 @@ Navigateur ──► Vercel (Paris, cdg1)                 Railway (Amsterdam, eu
                relayés vers Railway (même origine)    exports PPTX / XLSX
                assistant : appel direct à l'API ────► SSE /assistant ──► API Claude (Anthropic)
                                                       e-mails ──► Resend
+Navigateur ──► Vercel (Paris, cdg1)
+               apps/bridge : WiBridge, Next.js 15
+               appels /api/bridge/* relayés ───────► REST /api/bridge/* (même API, même base)
+               pièces jointes : dépôt direct ──────► POST /api/bridge/c/:client/files
 ```
 
+- WiBridge (`apps/bridge`, https://wibridge-wifirst.vercel.app) est une seconde interface, publiée par un projet Vercel distinct, sur la même API et la même base que WacMan. Ses routes sont toutes sous `/api/bridge/` et ses sessions sont distinctes de celles de WacMan (partie WiBridge plus bas).
 - Le front ne contient aucun secret : toutes les données et tous les secrets sont côté API (Railway).
 - Les appels `/api/*` passent par une réécriture Vercel vers l'API : le cookie de session est donc posé sur le domaine du front (pas de cookie tiers).
 - L'assistant appelle l'API Railway en direct (jeton court de 10 minutes délivré par `/api/auth/assistant-token`) pour que les réponses longues ne soient pas coupées par le relais Vercel. Le flux SSE envoie un commentaire de maintien toutes les 15 secondes ; l'arrêt est détecté sur la fermeture de la réponse (la requête entrante se ferme dès la lecture du corps).
@@ -23,6 +28,7 @@ Navigateur ──► Vercel (Paris, cdg1)                 Railway (Amsterdam, eu
 | `packages/core` | Modèle de données (Drizzle ORM), migrations SQL (`drizzle/`), règles métier, droits, journal, import et export de compte. Partagé par l'API. |
 | `apps/api` | Serveur Fastify : authentification, routes REST, exports PowerPoint (pptxgenjs) et Excel (exceljs), assistant Claude, envoi des codes (Resend). |
 | `apps/web` | Interface Next.js (App Router, React 19, Tailwind 4, SWR, dnd-kit). |
+| `apps/bridge` | Interface WiBridge (Next.js 15, React 19, Tailwind 4, SWR), port 3001 en local. |
 | `tools/notion_to_wacman.py` | Conversion de l'export Notion en fichier d'import. |
 | `tests/` | Suites de non-régression (API en Python, parcours navigateur Playwright), faux serveur Claude, scripts de l'environnement local. |
 | `CLAUDE.md` | Consignes lues par Claude Code à l'ouverture du dépôt (renvoie vers `docs/PASSATION.md`). |
@@ -30,13 +36,14 @@ Navigateur ──► Vercel (Paris, cdg1)                 Railway (Amsterdam, eu
 
 ## Modèle de données (packages/core/src/schema.ts)
 
-- `users`, `login_challenges` (codes e-mail hachés ; `purpose` LOGIN ou RESET pour le mot de passe oublié), `memberships` (rôle par compte), `api_tokens` (jetons d'accès personnels : hachage SHA-256, préfixe affiché, lecture seule, expiration, révocation, dernière utilisation).
+- `users` (avec `wacman_access`, `bridge_access`, `password_set` et `bridge_last_login_at` depuis WiBridge), `login_challenges` (codes e-mail hachés ; `purpose` LOGIN ou RESET pour WacMan, BRIDGE_LOGIN ou BRIDGE_RESET pour WiBridge), `memberships` (rôle par compte), `api_tokens` (jetons d'accès personnels : hachage SHA-256, préfixe affiché, lecture seule, expiration, révocation, dernière utilisation).
 - `cards` : livrables, avec `start_date` (début prévu) et `due_date` (échéance) pour le planning, et `content_updated_at` (dernière modification du contenu, mise à jour par `updateEntity` quand un champ autre que `position` ou `archived` change vraiment, et par `moveCard` quand le statut ou le stream change ; sert à l'étiquette de fraîcheur). Les paliers de fraîcheur sont dans `accounts.settings.freshness` (validés par `freshnessSchema`).
 - `accounts` : compte client, sections actives (`modules`), textes et libellés (`settings`), compteur des références de cartes.
 - Configuration par compte : `options` (listes de valeurs, par `kind`), `streams`, `sprints`, `meeting_types` (blocs et libellés), `governance_bodies`, `contacts`.
 - Contenu : `cards`, `meetings`, `highlights`, `stream_statuses`, `topics`, `risks` (+ `risk_cards`).
 - Suivi (V1.5) : `actions` (relevé des actions : `party` WIFIRST, CLIENT ou JOINT, `owner_id` contact, `stream_id`, `card_id`, `meeting_type_id` série de séances, `meeting_id` séance de prise, `due_date`, `status` OPEN, DONE ou CANCELLED, `closed_at` tenu par le serveur à chaque changement de statut, `order`) et `decisions` (registre : `status` PENDING ou TAKEN, `decided_on` date de la décision ou date attendue, `stream_id`, `card_id`, `topic_id` sujet d'origine, `meeting_type_id`, `meeting_id`). Une action ou une décision appartient au compte et non à une séance : la séance affiche celles de sa série prises au plus tard à sa date, ouvertes ou closes depuis la séance précédente (`lib/followup.ts`, repris à l'identique côté PowerPoint).
 - Traçabilité : `comments`, `audit_logs`, `assistant_runs`.
+- WiBridge : tables `bridge_*`, sans lien avec les comptes WacMan (partie WiBridge).
 
 Toutes les tables de contenu portent `account_id` ; chaque requête est filtrée par compte et chaque référence (stream, sprint, valeur de liste, contact, séance) est vérifiée comme appartenant au compte.
 
@@ -56,7 +63,7 @@ Le registre `packages/core/src/entities.ts` décrit chaque entité éditable (sc
 | `transfer.ts` | Import et export d'un compte (format `wacman-account-v1`, avec commentaires, actions et décisions ; séances et sujets référencés par leur rang dans le fichier) |
 | `review.ts` | Vues de synthèse calculées à partir du journal : `meetingChanges` (quoi de neuf depuis la séance précédente du même type, sur les jours de Paris), `streamReview` (revue d'un stream), `sprintReview` (bilan d'un sprint ; cartes reportées lues dans l'entrée de journal de la bascule, qui enregistre depuis la V1.5 `{ from, to, moved }`) |
 
-Le balisage léger est découpé par un seul module, `packages/core/src/markup.ts` (`tokenizeInline`, `parseLine`, `markupToPlain`), copié à l'identique dans `apps/web/lib/markup.ts` (le script `tools/check_markup_sync.sh` vérifie que les deux copies sont identiques). L'affichage (`Markdown.tsx`), le compte rendu (`lib/reportHtml.ts`, `lib/report.ts`), Excel (`exports/data.ts`) et PowerPoint (`exports/pptx.ts`) en dérivent.
+Le balisage léger est découpé par un seul module, `packages/core/src/markup.ts` (`tokenizeInline`, `parseLine`, `markupToPlain`), copié à l'identique dans `apps/web/lib/markup.ts` et `apps/bridge/lib/markup.ts` (le script `tools/check_markup_sync.sh` vérifie que les trois copies sont identiques). L'affichage (`Markdown.tsx`), le compte rendu (`lib/reportHtml.ts`, `lib/report.ts`), Excel (`exports/data.ts`) et PowerPoint (`exports/pptx.ts`) en dérivent.
 
 Les identifiants sont contrôlés par `isUuid` (`context.ts`, format strict) avant toute requête ; les filtres de liste génériques sont adaptés au type de colonne (une valeur impossible renvoie une liste vide).
 
@@ -89,6 +96,7 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 - Jeton d'accès personnel (`Bearer wac_…`) accepté sur toutes les routes REST et sur le serveur MCP ; refusé pour créer des jetons, changer de mot de passe ou appeler l'assistant intégré. En lecture seule, le contexte est ramené au rôle Lecteur (`ctx.readOnly`, `assertWritable`) et toute requête REST autre que GET est refusée par un crochet global (`server.ts`).
 - Jeton court de l'assistant (10 min) : accepté uniquement sur `POST /api/accounts/:compte/assistant` (`resolveUser`).
 - Codes à 6 chiffres : l'essai est compté par un `UPDATE … attempts = attempts + 1 WHERE attempts < 5 RETURNING` avant la comparaison, ce qui borne aussi les essais simultanés. Limitation des tentatives en mémoire par IP et par e-mail (table purgée au-delà de 5 000 entrées).
+- Accès à WacMan : `users.wacman_access` (vrai pour tous les comptes existants, faux pour un compte créé dans WiBridge) ou super-administrateur. Contrôlé à la connexion (après la comparaison du mot de passe, même refus qu'un mauvais mot de passe), au mot de passe oublié, à chaque requête de session (`userFromToken`) et pour les jetons d'accès (`resolveApiToken`). `listAllUsers` n'affiche que les comptes ayant accès à WacMan ; `addMember` et `adminCreateUser` n'ouvrent WacMan à un compte WiBridge que pour le super-administrateur.
 
 ## Interface (apps/web)
 
@@ -106,9 +114,91 @@ Le contrôle des références (`checkRefs` dans `entities.ts`) vérifie le forma
 - E-mails : `lib/reportHtml.ts` construit aussi l'objet (`mailSubject`, gabarit du type de séance), le bilan de sprint (`sprintReviewHtml`, `sprintReviewText`) ; le menu E-mail de la séance ouvre Gmail (`mail.google.com/mail/u/<compte>/?view=cm`) ou `mailto:` après la copie.
 - Mise en forme : `components/RichText.tsx` (barre d'outils, raccourcis, prolongation des listes ; transformations pures sur le texte et la sélection) et `components/Markdown.tsx` (rendu, cases cliquables). Le balisage léger est retiré ou converti par `plain()` (API) et `plainText()` (compte rendu texte), converti en HTML d'e-mail à styles en ligne par `mdToHtml()` (`lib/reportHtml.ts` : `meetingReportHtml()` et `copyRich()`, qui pose `text/html` et `text/plain` dans le presse-papiers, avec repli par sélection et copie), et converti en segments mis en forme par `runs()` (PowerPoint).
 
+## WiBridge
+
+WiBridge partage l'API, la base, Resend et le dépôt de WacMan. Spécification : `docs/SPECIFICATION_WIBRIDGE.md`. Dans le code, « PROVIDER » désigne Wifirst (libellé `provider_name` du client) et « CLIENT » le client (`client_name`).
+
+### Code
+
+| Emplacement | Rôle |
+|---|---|
+| `packages/core/src/bridge/common.ts` | droits (`partiesOf`, `effectiveAccess`, `buildBridgeCtx`), règles du client (`defaultBridgeSettings`), journal (`bridgeEvent`) |
+| `packages/core/src/bridge/questions.ts` | droits par question (`questionPerms`), liste, détail, historique, recherche, création, modification, réponse, attribution, clôture, réouverture, message, suppression, restauration, lignes d'export |
+| `packages/core/src/bridge/files.ts` | pièces jointes : dépôt, rattachement, lecture, retrait |
+| `packages/core/src/bridge/auth.ts` | connexion, appareils de confiance, invitations, mot de passe oublié, profil, préférences de notification |
+| `packages/core/src/bridge/admin.ts` | administration : clients, streams, règles, utilisateurs, droits, journal |
+| `packages/core/src/bridge/notify.ts` | événements à notifier, destinataires, récapitulatif quotidien |
+| `apps/api/src/bridge/routes.ts` | routes `/api/bridge/*` |
+| `apps/api/src/bridge/session.ts` | cookies et jetons WiBridge |
+| `apps/api/src/bridge/mail.ts` | e-mails (gabarits, envoi Resend, boîte d'envoi de développement) |
+| `apps/api/src/bridge/xlsx.ts` | export Excel |
+| `apps/api/src/bridge/scheduler.ts` | récapitulatif quotidien |
+| `apps/bridge` | interface |
+
+Le service exporte `Bridge` depuis `@wacman/core` (`import { Bridge } from "@wacman/core"`).
+
+### Données
+
+| Table | Contenu |
+|---|---|
+| `bridge_clients` | client : `slug`, `name` (nom de l'espace), `client_name`, `provider_name`, `short_name`, `emoji`, `description` (mode d'emploi), `settings` (règles), `archived`, `next_ref` (prochain numéro de question) |
+| `bridge_streams` | streams du client : `name`, `emoji`, `order`, `active` |
+| `bridge_members` | accès d'un utilisateur à un client : `side` (PROVIDER ou CLIENT), `default_access`, `stream_access` (droits particuliers `{stream: droit}`), `notify` (IMMEDIATE, DAILY ou NONE) ; unique par utilisateur et client |
+| `bridge_questions` | `ref` (unique par client), `subject`, `body`, `asked_by_id`, `asked_by_name`, `asked_by_party`, `assigned_party`, `status` (OPEN, IN_PROGRESS, CLOSED), `due_date`, `closed_at`, `closed_by_*`, `last_activity_at`, `deleted_at` |
+| `bridge_question_streams` | streams d'une question (clé double) ; la clé étrangère vers le stream empêche de supprimer un stream utilisé |
+| `bridge_messages` | échanges : auteur, `party`, `body`, `outcome` (ASSIGN, CLOSE, REOPEN), `assigned_before`, `assigned_after`, `edited_at` |
+| `bridge_files` | pièces jointes en `bytea` (20 Mo au plus) ; `attached_at` vide pour un dépôt pas encore envoyé, purgé au bout de 24 heures |
+| `bridge_events` | journal et historique : `action`, `summary`, `changes` (valeurs ou paires avant, après), auteur et organisation |
+| `bridge_devices` | appareils de confiance : jeton haché (SHA-256), libellé, dernière utilisation, expiration, révocation |
+| `bridge_invitations` | liens d'invitation : jeton haché, invité par, expiration, acceptation, révocation |
+| `bridge_jobs` | verrou d'envoi du récapitulatif (`name`, `day`) |
+
+### Droits
+
+- `buildBridgeCtx(user, client)` charge le client (slug ou identifiant), l'adhésion de l'utilisateur et les streams ; il refuse un client sans adhésion ou archivé, sauf pour le super-administrateur. `ctx.access(stream)` donne le droit effectif : droit particulier du stream, sinon droit par défaut ; BOTH pour le super-administrateur.
+- `questionPerms(ctx, question, streams, nombreDeMessages)` calcule `edit`, `streams`, `respondAs`, `close`, `reopenAs`, `reassign`, `delete` et `restore` à partir des organisations permises sur les streams de la question et des règles du client. La liste et le détail renvoient ces droits à l'écran ; chaque écriture recharge la question verrouillée (`SELECT … FOR UPDATE`) et les recalcule.
+- Une question dont aucun stream n'est visible pour l'utilisateur répond 404.
+
+### Sessions et authentification
+
+- Cookie `wib_session` : JWT HS256 de 14 jours signé avec `SESSION_SECRET`, `typ: "bridge"` (la session WacMan porte `typ: "session"` : chaque application refuse le jeton de l'autre) et `session_version`. À chaque requête : compte actif, mot de passe choisi, accès WiBridge ou super-administrateur.
+- `server.ts` : une requête `/api/bridge/*` n'est résolue que par `resolveBridgeUser`, jamais par la session ou un jeton WacMan ; les routes WacMan ignorent la session WiBridge.
+- Appareil de confiance : cookie `wib_device` (jeton aléatoire haché en base, chemin `/api/bridge/auth`, 180 jours glissants). Sans appareil valable, la connexion envoie un code (`login_challenges`, BRIDGE_LOGIN).
+- Invitation : jeton aléatoire de 32 octets haché en base, lien `<BRIDGE_WEB_URL>/invitation#<jeton>` ; la page lit le fragment, le retire de l'adresse et l'envoie dans le corps de `invitation/info` et `invitation/accept`. Le compte invité a un mot de passe aléatoire et `password_set` faux jusqu'à l'activation.
+- Pièces jointes : `GET /api/bridge/auth/upload-token` délivre un jeton de 15 minutes (`typ: "upload"`), accepté seulement sur `POST /api/bridge/c/:client/files`, appelé en direct sur Railway pour que les fichiers volumineux ne passent pas par le relais Vercel (CORS ouvert aux origines de `BRIDGE_WEB_ORIGINS`). Le fichier arrive en `application/octet-stream`, nom dans `X-File-Name` (encodé), type dans `X-File-Type`. Téléchargement : `GET /api/bridge/c/:client/files/:id/link` renvoie un jeton signé de 5 minutes servi par `GET /api/bridge/dl/:jeton` (adresse masquée dans les journaux ; `routerOptions.maxParamLength` porté à 2048).
+
+### Routes (apps/api/src/bridge/routes.ts)
+
+| Groupe | Routes |
+|---|---|
+| Connexion et compte | `POST /api/bridge/auth/login`, `verify`, `logout`, `forgot`, `reset`, `password`, `invitation/info`, `invitation/accept` ; `GET` et `PATCH /api/bridge/auth/me` ; `GET /api/bridge/auth/devices`, `DELETE devices/:id`, `POST devices/revoke-all` ; `GET upload-token` |
+| Client | `GET /api/bridge/c/:client` (client, streams, droits, préférences), `POST /api/bridge/c/:client/notify`, `GET search?q=`, `GET export.xlsx?status=` |
+| Questions | `GET` et `POST /api/bridge/c/:client/questions` (`?deleted=1` pour la corbeille) ; `GET`, `PATCH`, `DELETE questions/:id` (identifiant ou numéro) ; `POST questions/:id/messages`, `assign`, `close`, `reopen`, `restore` ; `GET questions/:id/history` ; `PATCH messages/:id` |
+| Pièces jointes | `POST /api/bridge/c/:client/files?questionId=&messageId=`, `GET files/:id/link`, `DELETE files/:id`, `GET /api/bridge/dl/:jeton` |
+| Administration | `GET` et `POST /api/bridge/admin/clients`, `PATCH clients/:id`, `POST clients/:id/streams`, `POST clients/:id/streams/reorder`, `PATCH` et `DELETE streams/:id`, `GET` et `POST users`, `PATCH users/:id`, `PUT users/:id/memberships`, `POST users/:id/invite`, `POST users/:id/revoke-devices`, `GET journal` |
+| Développement | `GET /api/bridge/dev/outbox`, `POST /api/bridge/dev/digest` (absentes en production) |
+
+Limites : connexion 8 par tranche de 10 minutes par IP et e-mail et 20 par 30 minutes par e-mail, code 20 par IP, mot de passe oublié 6 par IP et 4 par e-mail, invitation 30 par IP, dépôts 200 par heure et par utilisateur.
+
+### Notifications
+
+- Le service émet un `BridgeNotice` (`emitBridgeNotice`, après la transaction, sans jamais faire échouer l'opération) ; l'API branche l'envoi au démarrage (`Bridge.setBridgeNotifier(sendNotice)`).
+- `noticeRecipients` : membres du client avec la préférence IMMEDIATE, compte actif et activé, ayant l'accès WiBridge (ou super-administrateur), sauf l'auteur ; pour une attribution, les éditeurs de l'organisation attributaire sur l'un des streams de la question ; pour une clôture ou une réponse qui conserve l'attribution, la personne qui a posé la question.
+- Récapitulatif : `startBridgeScheduler` vérifie toutes les 5 minutes ; du lundi au vendredi entre 8 h et 12 h (Paris), l'insertion de la ligne `bridge_jobs (digest, jour)` réserve l'envoi du jour à une seule instance ; `digestBatches` regroupe par membre (préférence DAILY) les questions ouvertes attribuées à une organisation pour laquelle il est éditeur.
+- Envoi par Resend (envoi groupé par 100) avec l'expéditeur `BRIDGE_MAIL_FROM` ; en développement sans clé Resend, les e-mails sont gardés en mémoire et numérotés (`GET /api/bridge/dev/outbox?after=<n>`).
+
+### Interface (apps/bridge)
+
+- Pages : `/login` (mot de passe, code de nouvel appareil, mot de passe oublié), `/invitation`, `/` (choix du client, redirection directe s'il n'y en a qu'un), `/c/[slug]` (questions), `/compte`, `/admin` (super-administrateur).
+- Repris de WacMan : `RichText.tsx`, `Markdown.tsx`, `Tag.tsx` (avec options désactivées et minimum de valeurs), `ui.tsx` (InlineText, Modal, Toggle, useSubmit, messages), `Menu.tsx`, `lib/markup.ts` (copie identique), charte et thèmes de `globals.css`.
+- `components/ClientContext.tsx` : données du client et actions sur les questions (`useQuestionActions`), qui mettent à jour la liste et le détail sans attendre le rafraîchissement.
+- `components/questions/` : étiquettes (`Tags.tsx`), échanges et zone de réponse (`Thread.tsx`, brouillons gardés en mémoire par question), pièces jointes (`Attachments.tsx`, envoi XHR avec progression), historique (`History.tsx`), nouvelle question (`NewQuestion.tsx`) ; `components/admin/Rights.tsx` : éditeur des droits par client et par stream.
+- Tableau en `table-layout: fixed` avec `colgroup` (colonnes de largeur fixe, sujet extensible), tri par en-tête, cartes sous 1 200 px de large (`useSyncExternalStore` sur `matchMedia`, une seule mise en page rendue), filtres mémorisés dans `localStorage` (`wibridge-view-<client>`), thème dans `wibridge-theme`.
+- `lib/api.ts` : appels relatifs `/api/*` (relais Vercel vers Railway, cookie sur le domaine du front), redirection vers `/login?next=` sur 401 ; `lib/upload.ts` : dépôt direct sur `NEXT_PUBLIC_API_URL` et ouverture des fichiers.
+
 ## Migrations
 
-Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), `0004_actions_decisions` (V1.5 : tables `actions` et `decisions`, blocs ACTIONS et DECISIONS ajoutés aux types existants, décisions reprises des lignes « Décision : … » des sujets, relevé du COPROJ LP du 01/10/2026 et réglages d'e-mail du COPROJ LP pour le compte La Poste, chaque reprise ne s'appliquant qu'une fois), uniquement des ajouts.
+Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), `0004_actions_decisions` (V1.5 : tables `actions` et `decisions`, blocs ACTIONS et DECISIONS ajoutés aux types existants, décisions reprises des lignes « Décision : … » des sujets, relevé du COPROJ LP du 01/10/2026 et réglages d'e-mail du COPROJ LP pour le compte La Poste, chaque reprise ne s'appliquant qu'une fois), `0005_bridge` (WiBridge : colonnes d'accès de `users`, tables `bridge_*`, client La Poste avec ses 7 streams s'il n'existe aucun client, accès WiBridge du super-administrateur, éditeur des deux chez La Poste), uniquement des ajouts.
 
 ## Pourquoi Drizzle plutôt que Prisma
 

@@ -24,5 +24,22 @@ export const env = {
   bootstrapAdminName: process.env.BOOTSTRAP_ADMIN_NAME ?? "Florent Jolivet",
   // en développement uniquement : le code de double authentification est renvoyé dans la réponse
   devShowOtp: !isProd && process.env.DEV_SHOW_OTP !== "0",
+  // WiBridge : adresse publique de l'interface (liens des e-mails, appels directs pour les pièces jointes) et expéditeur
+  bridgeWebUrl: bridgeUrl(),
+  bridgeOrigins: (process.env.BRIDGE_WEB_ORIGINS ?? new URL(bridgeUrl()).origin)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+  bridgeMailFrom: process.env.BRIDGE_MAIL_FROM ?? bridgeSender(),
 };
+
+function bridgeUrl() {
+  return (process.env.BRIDGE_WEB_URL ?? (isProd ? "https://wibridge-wifirst.vercel.app" : "http://localhost:3001")).replace(/\/+$/, "");
+}
+
+/** Expéditeur WiBridge : wibridge@ sur le domaine d'envoi de WacMan s'il est vérifié (MAIL_FROM), sinon l'adresse de test Resend. */
+function bridgeSender() {
+  const m = /@([A-Za-z0-9.-]+)>?\s*$/.exec(process.env.MAIL_FROM ?? "");
+  return m && m[1] !== "resend.dev" ? `WiBridge <wibridge@${m[1]}>` : "WiBridge <onboarding@resend.dev>";
+}
 process.env.DATABASE_URL = env.databaseUrl;

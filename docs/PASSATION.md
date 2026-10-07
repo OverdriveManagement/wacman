@@ -1,6 +1,6 @@
 # WacMan : dossier de passation vers un autre compte Claude
 
-Mis à jour le 6 octobre 2026, version en ligne **V1.5** (fonctions livrées le 4 octobre 2026, commit `561a4d5`, puis la passation du 6 octobre).
+Mis à jour le 7 octobre 2026 : version en ligne **V1.6** de WacMan et **V1.0** de WiBridge (espace d'échange de questions avec les clients, livré le 7 octobre 2026).
 
 Ce document rassemble tout ce qu'il faut pour reprendre le développement de WacMan depuis un autre compte Claude : le contexte, l'historique, la méthode de travail suivie jusqu'ici, les accès à ouvrir et les pièges déjà rencontrés. Il ne contient aucun secret.
 
@@ -20,6 +20,7 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 - **Sections** d'un compte : Program Management (tout le Notion reconstruit, et plus), Finance management et Provisioning management (vides pour l'instant).
 - **Utilisateurs** : 5 à 8 éditeurs et une quinzaine de lecteurs côté Wifirst ; pas d'accès La Poste pour l'instant.
 - **Assistant Claude intégré** (API Claude) et **connecteur Claude** (serveur MCP) pour lire et modifier le contenu en langage naturel.
+- **WiBridge** (`apps/bridge`, https://wibridge-wifirst.vercel.app) : espace d'échange de questions et de demandes d'éléments entre Wifirst et ses clients (premier client La Poste, 7 streams), sur la même API et la même base. Comptes distincts de WacMan (un compte créé dans WiBridge n'a pas accès à WacMan), sauf le super-administrateur ; aucun lien entre les deux. Spécification : `docs/SPECIFICATION_WIBRIDGE.md`.
 
 Le détail fonctionnel complet est dans `docs/SPECIFICATION.md` (avec le journal de toutes les demandes), l'architecture dans `docs/ARCHITECTURE.md`, l'hébergement dans `docs/EXPLOITATION.md`.
 
@@ -57,15 +58,16 @@ Préférences constatées et demandées :
 |---|---|
 | Dépôt | GitHub privé `OverdriveManagement/wacman`, branche `main` |
 | Front | https://wacman.vercel.app (Vercel, projet `wacman`, identifiant `prj_jAcPBrMQB7OHlPrdy3l13JlQjMrF`, équipe Flogger Forge, offre Hobby, région Paris cdg1, répertoire racine `apps/web`) |
-| API | https://wacman-api-production.up.railway.app (santé : `/api/health`) |
+| Front WiBridge | https://wibridge-wifirst.vercel.app (Vercel, projet `wibridge-wifirst`, identifiant `prj_jUQRzD9MprS1UEsq0MYsIXEHw2lV`, même équipe, région Paris cdg1, répertoire racine `apps/bridge`) |
+| API | https://wacman-api-production.up.railway.app (santé : `/api/health`), commune à WacMan et WiBridge (routes WiBridge sous `/api/bridge/`) |
 | Railway | compte overdrivemanagement, offre Hobby ; projet `wacman` `15e94573-4edc-46ba-b699-a06c089fd51d`, environnement production `0fbe2d06-50a9-4513-84a7-6619a341ea1f`, service `wacman-api` `3e922a2b-5e30-4178-8881-079de250bab7`, plus un service PostgreSQL ; région Amsterdam (europe-west4) |
 | Serveur MCP | `https://wacman-api-production.up.railway.app/api/mcp` (en-tête `Authorization: Bearer wac_…`) ou `…/api/mcp/wac_…` pour un connecteur personnalisé |
-| E-mails | Resend, domaine `omgt.fr` vérifié, expéditeur `WacMan <wacman@omgt.fr>`, clé dédiée « wacman » |
+| E-mails | Resend, domaine `omgt.fr` vérifié, expéditeurs `WacMan <wacman@omgt.fr>` et `WiBridge <wibridge@omgt.fr>`, clé dédiée « wacman » |
 | Claude | clé API Anthropic du compte Overdrive Management (variable Railway), modèle par défaut `claude-sonnet-5-5` |
 | Secrets | uniquement dans les variables du service Railway (`DATABASE_URL`, `SESSION_SECRET`, `RESEND_API_KEY`, `ANTHROPIC_API_KEY`…) ; rien à transmettre au nouveau compte |
 | Données client | jamais versionnées (`data/*.json` est ignoré) ; sauvegarde JSON téléchargeable dans WacMan (Paramètres du compte, Données) |
 
-Avec le connecteur Vercel, passer l'identifiant du projet : la portée par le nom d'équipe (`flogger-forge`) a renvoyé une erreur 403.
+Avec le connecteur Vercel, passer l'identifiant du projet sans préciser l'équipe : la portée par le nom ou l'identifiant d'équipe (`flogger-forge`, `team_a3UmrQ9rdt8Zuuk7DeAYGRlo`) renvoie une erreur 403.
 
 ## 5. Architecture en une page
 
@@ -73,7 +75,8 @@ Avec le connecteur Vercel, passer l'identifiant du projet : la portée par le no
 - **Registre des entités** (`packages/core/src/entities.ts`) : chaque entité éditable (carte, séance, fait marquant, statut, sujet, risque, action, décision, stream, sprint…) y est décrite une fois (schéma zod, rôle requis, contrôles de références). Routes REST génériques `/api/accounts/:compte/e/:entité`, outils de l'assistant et serveur MCP passent tous par là : mêmes droits, même validation, même journal (diff `{champ: [avant, après]}`).
 - **Droits** : rôles par compte (Administrateur, Éditeur, Lecteur), super-administrateur ; jetons d'accès personnels `wac_…` (lecture seule possible) pour l'API et le MCP.
 - **Front** : appels `/api/*` relayés par Vercel vers Railway (même origine, cookie de session) ; l'assistant appelle Railway en direct avec un jeton court.
-- **Balisage léger** des textes (`markup.ts`, copie identique dans core et web, vérifiée par `tools/check_markup_sync.sh`) repris à l'écran, dans le CR copié, le PDF, Excel et PowerPoint.
+- **Balisage léger** des textes (`markup.ts`, copie identique dans core, web et bridge, vérifiée par `tools/check_markup_sync.sh`) repris à l'écran, dans le CR copié, le PDF, Excel et PowerPoint.
+- **WiBridge** : services dans `packages/core/src/bridge/` (droits par client et par stream calculés par le serveur pour chaque question), routes, session, e-mails, export et récapitulatif dans `apps/api/src/bridge/`, interface dans `apps/bridge` (copie des composants de mise en forme et d'étiquettes de WacMan). Cookie de session `wib_session` distinct de celui de WacMan, appareils de confiance (`wib_device`), invitations par lien à usage unique, pièces jointes dans la base.
 
 ## 6. Historique
 
@@ -89,8 +92,14 @@ Avec le connecteur Vercel, passer l'identifiant du projet : la portée par le no
 | 04/10/2026 | V1.4 (`bed5ce3`) | revue générale, environ 40 correctifs, suites de tests |
 | 04/10/2026 | V1.5 (`561a4d5`) | relevé des actions et registre des décisions, e-mail complet du CR, quoi de neuf et faits marquants proposés par Claude, revue de stream avec mode présentation, bilan de sprint, import d'un CR d'atelier, PowerPoint au format des decks Program weekly et COPROJ |
 | 06/10/2026 | passation | ce document, `CLAUDE.md`, suites de tests versionnées dans `tests/`, parcours des accès entièrement dans le navigateur ; correctif : un jeton en lecture seule d'un super-administrateur voit de nouveau tous les comptes dans `list_accounts` |
+| 07/10/2026 | V1.6 et WiBridge V1.0 | WiBridge : questions et demandes d'éléments entre Wifirst et La Poste, attribution, réponses et issues, réouverture, historique, droits par stream, invitations et code sur nouvel appareil, pièces jointes, e-mails, export Excel, administration ; WacMan : séparation des comptes (accès WacMan par compte) |
 
-Données reprises en production par les migrations : dates « Mis à jour » Notion des cartes La Poste (0003) ; 7 actions du COPROJ LP du 01/10/2026, 4 décisions du Strategic Committee du 29/09/2026 tirées des sujets, réglages d'e-mail du COPROJ LP (0004).
+Données reprises en production par les migrations : dates « Mis à jour » Notion des cartes La Poste (0003) ; 7 actions du COPROJ LP du 01/10/2026, 4 décisions du Strategic Committee du 29/09/2026 tirées des sujets, réglages d'e-mail du COPROJ LP (0004) ; client WiBridge La Poste, ses 7 streams et l'accès du super-administrateur (0005).
+
+Points ouverts à la V1.6 (WiBridge) :
+- aucun utilisateur La Poste n'est encore invité : c'est Florent qui les invite (Administration de WiBridge, Utilisateurs et droits) ;
+- les e-mails WiBridge partent de `wibridge@omgt.fr` (domaine d'Overdrive Management) ; un domaine Wifirst demanderait sa vérification dans Resend ;
+- les suites WacMan n'ont pas été rejouées le 07/10/2026 faute de la sauvegarde La Poste dans la session ; la séparation des comptes est couverte par `bridge_api.py` et un contrôle de l'écran WacMan.
 
 Points ouverts à la V1.5 :
 - les slides suivent le texte des decks et le gabarit relevé, pas encore leur rendu exact : pour caler au pixel près, Florent peut fournir les fichiers .pptx d'origine ;
@@ -104,12 +113,12 @@ Points ouverts à la V1.5 :
 2. Données : modifier `packages/core/src/schema.ts`, générer la migration (`npm run db:generate -w @wacman/core`), y ajouter à la main la reprise de données si besoin (une reprise ne doit s'appliquer qu'une fois : `WHERE NOT EXISTS`, `NOT (settings ? 'clé')`…). Les migrations ne font que des ajouts.
 3. Nouvelle entité éditable : la déclarer dans `entities.ts` (schéma, rôle, contrôles de références), l'ajouter à l'export et l'import de compte (`services/transfer.ts`), au prompt de l'assistant (`apps/api/src/assistant/run.ts`).
 4. Vérifier : types des trois paquets, `tools/check_markup_sync.sh`, `bash tests/rebuild_web.sh` (build Next avec lint), `bash tests/run_all.sh` ; ajouter une suite ou des cas pour la nouveauté ; regarder les écrans touchés en capture (ordinateur et mobile 390 px) et, pour PowerPoint, rendre les slides en image (LibreOffice puis `pdftoppm`).
-5. Documenter : `SPECIFICATION.md` (version, sections, ligne de journal), `ARCHITECTURE.md`, `EXPLOITATION.md` si besoin.
-6. Livrer : commit et push sur `main`, puis contrôler le déploiement Railway du service `wacman-api` (SUCCESS, journaux de démarrage sans erreur, migration appliquée) et Vercel (READY).
+5. Documenter : `SPECIFICATION.md` ou `SPECIFICATION_WIBRIDGE.md` (version, sections, ligne de journal), `ARCHITECTURE.md`, `EXPLOITATION.md` si besoin.
+6. Livrer : commit et push sur `main`, puis contrôler le déploiement Railway du service `wacman-api` (SUCCESS, journaux de démarrage sans erreur, migration appliquée) et Vercel (READY pour `wacman` et `wibridge-wifirst`).
 
 ## 8. Environnement de test
 
-Tout est décrit dans `tests/README.md`. En bref : `bash tests/dev_up.sh` (PostgreSQL, base locale, `.env.dev` avec un mot de passe local tiré au hasard, faux serveur Claude, API, front), import de la sauvegarde JSON du compte La Poste fournie par Florent, puis `bash tests/run_all.sh` (10 suites, environ 10 minutes, toutes au vert au 06/10/2026). Les tests ne visent jamais la production.
+Tout est décrit dans `tests/README.md`. En bref : `bash tests/dev_up.sh` (PostgreSQL, base locale, `.env.dev` avec un mot de passe local tiré au hasard, faux serveur Claude, API, front), import de la sauvegarde JSON du compte La Poste fournie par Florent, puis `bash tests/run_all.sh` (12 suites, environ 12 minutes ; les 10 suites WacMan étaient toutes au vert au 06/10/2026, les 2 suites WiBridge au 07/10/2026). Les suites WiBridge (`bridge_api.py`, `bridge_e2e.py`) créent leurs propres données et tournent sans la sauvegarde La Poste. Les tests ne visent jamais la production.
 
 ## 9. Pièges déjà rencontrés
 
@@ -122,6 +131,9 @@ Tout est décrit dans `tests/README.md`. En bref : `bash tests/dev_up.sh` (Postg
 - Pas de prettier : le dépôt n'a pas de configuration, il reformaterait les fichiers.
 - `e2e_tour.py` : la vérification « Ctrl+K dans un texte » (barre de mise en forme) échoue parfois pour une question de minutage du curseur ; la relancer avant de chercher une régression.
 - Les journaux Railway affichent « npm warn config production » au niveau erreur : sans conséquence.
+- WiBridge en local écoute sur le port 3001 : `rebuild_web.sh` n'arrête que le port 3000 et `rebuild_bridge.sh` que le port 3001.
+- WiBridge : les jetons de téléchargement sont longs, d'où `routerOptions.maxParamLength` à 2048 dans Fastify (sinon erreur 414) ; un horodatage JavaScript (millisecondes) ne se compare pas à un `timestamptz` PostgreSQL (microsecondes) : comparer en SQL.
+- WiBridge : un client créé par `bridge_e2e.py` s'appelle « La Poste » (adresse `la-poste-2`, `la-poste-3`…) et est archivé en fin de suite ; en local, ne pas confondre avec le client `la-poste` créé par la migration.
 - Exports PowerPoint : gabarit 16:9 (10 x 5,625 pouces), titres Hind Madurai gras 20 pt `004968`, chapô Inter 8 pt `334155`, intertitres Inter ExtraBold 7,5 pt `2563EB` avec filet `F1F5F9`, palette bleu `2563EB`, bleu clair `9DBDF4`, ocre `D97706`, teal `0F766E`, rouge `EF4444`, fond de carte `F8FAFC`, mention de confidentialité Hind Madurai Light 6 pt `A6AAA9`.
 
 ## 10. Évolutions gardées pour plus tard
@@ -142,6 +154,8 @@ Liste établie avec Florent le 04/10/2026 (non commencée) :
 13. Sauvegarde automatique quotidienne avec test de restauration.
 14. Tests automatiques à chaque push et environnement de recette.
 15. Domaine personnalisé.
+
+WiBridge, suites possibles (non commencées) : domaine et expéditeur Wifirst, notes internes à Wifirst invisibles du client, reprise de questions déjà échangées (Excel ou e-mails), stockage des pièces jointes hors de la base, SSO Microsoft.
 
 ## 11. Connexions à établir pour le nouveau compte Claude
 
@@ -189,4 +203,4 @@ Tout se fait dans le navigateur, sans script ni terminal. Les autorisations (con
 
 ## 12. Message de démarrage à coller dans la première session
 
-> Tu reprends le développement de WacMan, dépôt OverdriveManagement/wacman. Lis d'abord CLAUDE.md puis docs/PASSATION.md, docs/SPECIFICATION.md et docs/ARCHITECTURE.md. Vérifie ensuite les accès sans rien modifier : (1) le dépôt est cloné et tu peux pousser une branche de test que tu supprimes aussitôt ; (2) connecteur Railway : derniers déploiements du service wacman-api (projet 15e94573-4edc-46ba-b699-a06c089fd51d) ; (3) connecteur Vercel : derniers déploiements du projet prj_jAcPBrMQB7OHlPrdy3l13JlQjMrF ; (4) si le connecteur WacMan est présent : list_accounts. Monte ensuite l'environnement local avec tests/dev_up.sh, importe la sauvegarde JSON jointe et lance tests/run_all.sh. Fais-moi un compte rendu court de ce qui marche et de ce qui manque.
+> Tu reprends le développement de WacMan, dépôt OverdriveManagement/wacman. Lis d'abord CLAUDE.md puis docs/PASSATION.md, docs/SPECIFICATION.md et docs/ARCHITECTURE.md. Vérifie ensuite les accès sans rien modifier : (1) le dépôt est cloné et tu peux pousser une branche de test que tu supprimes aussitôt ; (2) connecteur Railway : derniers déploiements du service wacman-api (projet 15e94573-4edc-46ba-b699-a06c089fd51d) ; (3) connecteur Vercel : derniers déploiements des projets prj_jAcPBrMQB7OHlPrdy3l13JlQjMrF (WacMan) et prj_jUQRzD9MprS1UEsq0MYsIXEHw2lV (WiBridge) ; (4) si le connecteur WacMan est présent : list_accounts. Monte ensuite l'environnement local avec tests/dev_up.sh, importe la sauvegarde JSON jointe et lance tests/run_all.sh. Fais-moi un compte rendu court de ce qui marche et de ce qui manque.

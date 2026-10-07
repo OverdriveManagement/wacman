@@ -21,6 +21,9 @@ export const hashPassword = (pwd: string) => bcrypt.hash(pwd, 11);
 let DUMMY_HASH: string | undefined;
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
+/** Accès à WacMan : comptes WacMan et super-administrateur (un compte créé depuis WiBridge n'y a pas accès). */
+export const hasWacmanAccess = (u: { wacmanAccess: boolean; isSuperAdmin: boolean }) => u.wacmanAccess || u.isSuperAdmin;
+
 export function toSessionUser(u: { id: string; email: string; name: string; isSuperAdmin: boolean }): SessionUser {
   return { id: u.id, email: u.email, name: u.name, isSuperAdmin: u.isSuperAdmin };
 }
@@ -36,11 +39,13 @@ export async function startLogin(email: string, password: string) {
     throw invalid;
   }
   if (!(await bcrypt.compare(password, user.passwordHash))) throw invalid;
-  // invalide les codes précédents
+  // un compte WiBridge sans accès WacMan est refusé avec le même message (vérifié après le mot de passe : même temps de réponse)
+  if (!hasWacmanAccess(user)) throw invalid;
+  // invalide les codes de connexion précédents (une connexion WiBridge ou une réinitialisation en cours reste valable)
   await db
     .update(T.loginChallenges)
     .set({ consumedAt: new Date() })
-    .where(and(eq(T.loginChallenges.userId, user.id), isNull(T.loginChallenges.consumedAt)));
+    .where(and(eq(T.loginChallenges.userId, user.id), eq(T.loginChallenges.purpose, "LOGIN"), isNull(T.loginChallenges.consumedAt)));
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
   const [challenge] = await db
     .insert(T.loginChallenges)
@@ -61,7 +66,7 @@ export async function verifyLogin(challengeId: string, code: string) {
     .returning();
   if (!ch || ch.purpose !== "LOGIN" || ch.expiresAt < new Date()) throw invalid;
   const [u] = await db.select().from(T.users).where(eq(T.users.id, ch.userId));
-  if (!u || !u.active) throw invalid;
+  if (!u || !u.active || !hasWacmanAccess(u)) throw invalid;
   if (sha(`${ch.userId}:${code.trim()}`) !== ch.codeHash) {
     throw new HttpError(401, ch.attempts >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Recommencez la connexion." : "Code incorrect.");
   }
@@ -80,7 +85,7 @@ export async function verifyLogin(challengeId: string, code: string) {
  */
 export async function startPasswordReset(email: string) {
   const [user] = await db.select().from(T.users).where(eq(T.users.email, email.trim().toLowerCase()));
-  if (!user || !user.active) return { challengeId: randomUUID(), code: null, user: null };
+  if (!user || !user.active || !hasWacmanAccess(user)) return { challengeId: randomUUID(), code: null, user: null };
   // seules les demandes de réinitialisation en cours sont annulées : une connexion en cours reste valable
   await db
     .update(T.loginChallenges)
@@ -110,11 +115,11 @@ export async function completePasswordReset(challengeId: string, code: string, p
     throw new HttpError(400, ch.attempts >= OTP_MAX_ATTEMPTS ? "Trop d'essais. Refaites une demande." : "Code incorrect.");
   }
   const [u] = await db.select().from(T.users).where(eq(T.users.id, ch.userId));
-  if (!u || !u.active) throw invalid;
+  if (!u || !u.active || !hasWacmanAccess(u)) throw invalid;
   await db.update(T.loginChallenges).set({ consumedAt: new Date() }).where(eq(T.loginChallenges.id, ch.id));
   await db
     .update(T.users)
-    .set({ passwordHash: await hashPassword(pw.data), sessionVersion: u.sessionVersion + 1 })
+    .set({ passwordHash: await hashPassword(pw.data), passwordSet: true, sessionVersion: u.sessionVersion + 1 })
     .where(eq(T.users.id, u.id));
   await audit({ user: toSessionUser(u), accountId: null }, "user", u.id, "update", `Mot de passe réinitialisé par e-mail : ${u.name}`);
   return { ok: true };
@@ -139,7 +144,7 @@ export async function ensureBootstrapAdmin(email?: string, password?: string, na
   if (existing.length) return null;
   const [u] = await db
     .insert(T.users)
-    .values({ email: email.toLowerCase(), name, passwordHash: await hashPassword(password), isSuperAdmin: true })
+    .values({ email: email.toLowerCase(), name, passwordHash: await hashPassword(password), isSuperAdmin: true, bridgeAccess: true })
     .returning();
   return u;
 }
@@ -177,6 +182,12 @@ export async function addMember(ctx: Ctx, input: unknown) {
   if (!p.success) throw badRequest("Données invalides.", p.error.flatten());
   const email = p.data.email.trim().toLowerCase();
   let [user] = await db.select().from(T.users).where(eq(T.users.email, email));
+  if (user && !hasWacmanAccess(user)) {
+    // compte créé depuis WiBridge : seul le super-administrateur lui ouvre WacMan (son mot de passe actuel est conservé)
+    if (!ctx.user.isSuperAdmin) throw forbidden("Cette adresse a un compte WiBridge sans accès à WacMan : seul le super-administrateur peut le lui ouvrir.");
+    [user] = await db.update(T.users).set({ wacmanAccess: true }).where(eq(T.users.id, user.id)).returning();
+    await audit(ctx, "user", user.id, "update", `Accès WacMan ouvert à ${user.name}`);
+  }
   if (!user) {
     const pw = passwordSchema.safeParse(p.data.password ?? "");
     if (!pw.success) throw badRequest(`Mot de passe initial requis : ${pw.error.issues.map((i) => i.message).join(", ")}`);
@@ -224,7 +235,8 @@ export async function removeMember(ctx: Ctx, membershipId: string) {
 
 export async function listAllUsers(user: SessionUser) {
   if (!user.isSuperAdmin) throw forbidden();
-  const users = await db.select().from(T.users).orderBy(asc(T.users.name));
+  // les comptes WiBridge sans accès WacMan se gèrent dans WiBridge
+  const users = (await db.select().from(T.users).orderBy(asc(T.users.name))).filter(hasWacmanAccess);
   const ms = await db
     .select({ id: T.memberships.id, userId: T.memberships.userId, role: T.memberships.role, name: T.accounts.name, slug: T.accounts.slug })
     .from(T.memberships)
@@ -265,6 +277,7 @@ export async function adminUpdateUser(actor: SessionUser, userId: string, input:
     const pw = passwordSchema.safeParse(p.data.password);
     if (!pw.success) throw badRequest(`Mot de passe trop faible : ${pw.error.issues.map((i) => i.message).join(", ")}`);
     data.passwordHash = await hashPassword(pw.data);
+    data.passwordSet = true;
   }
   if (data.passwordHash || data.active === false) data.sessionVersion = cur.sessionVersion + 1;
   const [u] = await db.update(T.users).set(data).where(eq(T.users.id, userId)).returning();
@@ -281,7 +294,13 @@ export async function adminCreateUser(actor: SessionUser, input: unknown) {
   const pw = passwordSchema.safeParse(p.data.password);
   if (!pw.success) throw badRequest(`Mot de passe trop faible : ${pw.error.issues.map((i) => i.message).join(", ")}`);
   const email = p.data.email.trim().toLowerCase();
-  const [exists] = await db.select({ id: T.users.id }).from(T.users).where(eq(T.users.email, email));
+  const [exists] = await db.select().from(T.users).where(eq(T.users.email, email));
+  if (exists && !hasWacmanAccess(exists)) {
+    // compte créé depuis WiBridge : l'accès WacMan lui est ouvert, son mot de passe actuel est conservé
+    await db.update(T.users).set({ wacmanAccess: true, ...(p.data.isSuperAdmin ? { isSuperAdmin: true } : {}) }).where(eq(T.users.id, exists.id));
+    await audit({ user: actor, accountId: null }, "user", exists.id, "update", `Accès WacMan ouvert à ${exists.name} (compte WiBridge existant)`);
+    return { id: exists.id, existing: true, message: "Ce compte existait déjà dans WiBridge : l'accès à WacMan lui est ouvert et son mot de passe actuel est conservé." };
+  }
   if (exists) throw badRequest("Un utilisateur existe déjà avec cet e-mail.");
   const [u] = await db
     .insert(T.users)

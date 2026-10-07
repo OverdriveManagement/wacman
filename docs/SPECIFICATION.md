@@ -4,7 +4,9 @@ WacMan (Wifirst Account Management) est l'application web de pilotage des compte
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt.
 
-Version courante : **V1.5** (4 octobre 2026).
+Version courante : **V1.6** (7 octobre 2026).
+
+WiBridge, l'espace d'échange de questions entre Wifirst et ses clients, est une interface distincte appuyée sur la même API et la même base ; il a sa propre spécification : `SPECIFICATION_WIBRIDGE.md`.
 
 ---
 
@@ -33,6 +35,8 @@ Mot de passe : 10 caractères minimum, au moins une lettre et un chiffre. Les te
 
 **Mot de passe oublié** (lien sur la page de connexion) : l'utilisateur saisit son e-mail et reçoit un code à 6 chiffres (valable 10 minutes, 5 essais), puis choisit un nouveau mot de passe ; toutes ses sessions ouvertes sont fermées. La réponse est identique que l'e-mail existe ou non, pour ne pas révéler les comptes. Une demande de réinitialisation n'annule pas une connexion en cours. Demandes limitées (6 par adresse IP et 4 par e-mail par tranche de 10 minutes).
 
+**Comptes WiBridge** (V1.6) : un compte créé dans WiBridge n'a pas accès à WacMan. Il ne peut pas s'y connecter (même refus qu'un mauvais mot de passe), ne reçoit pas de code de réinitialisation WacMan, n'apparaît pas dans l'administration de WacMan et ses jetons sont refusés. Seul le super-administrateur lui ouvre WacMan (depuis l'administration de WiBridge, ou en l'ajoutant comme membre d'un compte). Une session WiBridge n'ouvre rien dans WacMan, et inversement ; aucun lien ne mène de l'un à l'autre. Le super-administrateur utilise le même compte dans les deux.
+
 ### 2.2 Jetons d'accès personnels
 Menu utilisateur, « Connecteur Claude et jetons » : chaque utilisateur crée des jetons (nom, durée 30 jours, 90 jours, 1 an ou sans limite, option lecture seule) qui permettent à Claude ou à un script d'agir avec ses droits.
 - Le jeton (préfixe `wac_`) n'est affiché qu'une fois ; seul son hachage est conservé. Liste des jetons actifs avec date de dernière utilisation, révocation immédiate.
@@ -48,7 +52,7 @@ Menu utilisateur, « Connecteur Claude et jetons » : chaque utilisateur crée d
 | Éditeur | Un compte | Contenu : cartes, séances, faits marquants, statuts, sujets, risques, annuaire |
 | Lecteur | Un compte | Consultation et commentaires |
 
-Un utilisateur peut avoir des rôles différents selon les comptes. Les accès se donnent dans Paramètres du compte, rubrique Accès (création de l'utilisateur avec un mot de passe initial s'il n'existe pas).
+Un utilisateur peut avoir des rôles différents selon les comptes. Les accès se donnent dans Paramètres du compte, rubrique Accès (création de l'utilisateur avec un mot de passe initial s'il n'existe pas). Une adresse qui a un compte WiBridge sans accès à WacMan ne peut être ajoutée que par le super-administrateur, ce qui lui ouvre WacMan ; un administrateur de compte reçoit un message qui l'explique.
 
 ## 3. Comptes clients
 
@@ -251,7 +255,7 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 - Contenu des sections Finance et Provisioning.
 - Connexion SSO Microsoft.
 - Domaine personnalisé.
-- Accès des utilisateurs La Poste.
+- Accès des utilisateurs La Poste à WacMan (ils échangent avec Wifirst dans WiBridge).
 
 ---
 
@@ -276,3 +280,4 @@ WacMan expose ses données à Claude hors de l'application (claude.ai, Claude De
 | 04/10/2026 | Faire A (1 à 4), puis B (6, 7, 9), puis D (15) de la liste d'évolutions proposée ; garder le reste en mémoire pour plus tard | V1.5 : exports PowerPoint au format des decks Program weekly et COPROJ (livrables du sprint, météo des streams, focus stream, attentes du client, avancement des streams en cartes, registre des décisions, relevé des actions, bilan de sprint ; modèles d'export) (4.9) ; relevé des actions et registre des décisions communs au compte, blocs de séance et page Actions & décisions, actions ouvertes reprises de séance en séance (4.3, 4.10) ; e-mail complet du compte rendu (objet, destinataires, introduction, formule de fin par type, ouverture de Gmail) (4.3, 6) ; « Quoi de neuf depuis la dernière séance » et faits marquants proposés par Claude (4.3) ; revue de stream avec mode présentation (4.11) ; bilan de sprint, e-mail et diapositive, affiché après la bascule (4.12) ; import d'un compte rendu d'atelier avec validation une par une (4.13) ; reprise des actions du COPROJ du 01/10, des décisions des sujets et des réglages d'e-mail du COPROJ (8) |
 | 06/10/2026 | Connecter WacMan à un autre compte Claude pour gérer les prochaines évolutions depuis ce compte : un fichier qui regroupe tout ce qui est connu et fait sur WacMan, et qui donne les autorisations à ouvrir | Dossier de passation `docs/PASSATION.md` (contexte, historique, méthode, pièges, backlog, accès à ouvrir, message de démarrage) ; consignes `CLAUDE.md` lues par Claude Code ; suites de tests et environnement local versionnés dans `tests/` ; script `tools/connect_claude_account.sh` (accès GitHub, application GitHub Claude, connecteurs, test du jeton WacMan) ; correctif : un jeton en lecture seule d'un super-administrateur liste de nouveau tous les comptes (outil list_accounts et liste REST), comme le prévoit 2.2 |
 | 06/10/2026 | Trouver une solution sans lancer de script | Script de raccordement retiré : parcours des accès entièrement dans le navigateur, avec les liens directs (`docs/PASSATION.md`, partie 11) ; vérifications faites par le nouveau Claude dans sa première session ; fenêtre « Connecteur Claude et jetons » mise à jour (chemin actuel de claude.ai, mise en garde pour les offres d'organisation) |
+| 07/10/2026 | Créer WiBridge, interface séparée et autonome sur Vercel (wibridge-wifirst.vercel.app) appuyée sur le même backend que WacMan, pour échanger questions et demandes d'éléments entre Wifirst et ses clients (La Poste en premier) ; nouveaux utilisateurs limités à WiBridge, accès WacMan ouvert par le super-administrateur ; comptes distincts sauf le super-administrateur, sans lien entre les deux | V1.6 : WiBridge livré avec sa propre spécification (`SPECIFICATION_WIBRIDGE.md`, V1.0) ; côté WacMan, séparation des comptes : accès WacMan par compte, refusé aux comptes créés dans WiBridge (connexion, mot de passe oublié, jetons), comptes WiBridge absents de l'administration, ouverture de WacMan réservée au super-administrateur (2.1, 2.3, 10) |

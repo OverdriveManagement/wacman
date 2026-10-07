@@ -1,0 +1,26 @@
+{
+  "name": "@wacman/bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WiBridge : échanges entre Wifirst et ses clients (même API que WacMan)",
+  "scripts": {
+    "dev": "next dev -p 3001",
+    "build": "next build",
+    "start": "next start -p 3001",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "15.5.27",
+    "react": "19.1.9",
+    "react-dom": "19.1.9",
+    "swr": "2.5.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3"
+  }
+}

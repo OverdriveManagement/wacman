@@ -46,7 +46,8 @@ async function userFromToken(token: string, typ: "session" | "assistant"): Promi
     const { payload } = await jwtVerify(token, key, { algorithms: ["HS256"] });
     if (payload.typ !== typ || !payload.sub) return null;
     const [u] = await db.select().from(T.users).where(eq(T.users.id, payload.sub));
-    if (!u || !u.active || u.sessionVersion !== payload.v) return null;
+    // un compte WiBridge sans accès WacMan n'ouvre aucune session WacMan
+    if (!u || !u.active || u.sessionVersion !== payload.v || !(u.wacmanAccess || u.isSuperAdmin)) return null;
     return toSessionUser(u);
   } catch {
     return null;

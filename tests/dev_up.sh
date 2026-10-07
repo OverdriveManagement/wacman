@@ -1,5 +1,5 @@
 #!/bin/bash
-# Environnement local de test : PostgreSQL, faux serveur Claude (port 4900), API (4000), front (3000).
+# Environnement local de test : PostgreSQL, faux serveur Claude (port 4900), API (4000), WacMan (3000), WiBridge (3001).
 # Crée au besoin la base locale et apps/api/.env.dev (mot de passe local tiré au hasard, jamais affiché).
 T=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$T/.." && pwd); mkdir -p "$T/out"
 service postgresql start </dev/null >/dev/null 2>&1
@@ -19,4 +19,12 @@ if ! curl -s -o /dev/null localhost:3000/login; then
   cd "$ROOT/apps/web" && (NEXT_PUBLIC_API_URL=http://localhost:4000 API_ORIGIN=http://localhost:4000 nohup npx next start -p 3000 > "$T/out/web.log" 2>&1 < /dev/null &)
   for i in $(seq 1 30); do curl -s -o /dev/null localhost:3000/login && break; sleep 1; done
 fi
-curl -s -m 5 -o /dev/null -w "mock %{http_code} " localhost:4900; curl -s -m 5 -o /dev/null -w "api %{http_code} " localhost:4000/api/health; curl -s -m 5 -o /dev/null -w "web %{http_code}\n" localhost:3000/login
+if ! curl -s -o /dev/null localhost:3001/login; then
+  if [ -d "$ROOT/apps/bridge/.next" ]; then
+    (cd "$ROOT/apps/bridge" && NEXT_PUBLIC_API_URL=http://localhost:4000 API_ORIGIN=http://localhost:4000 nohup npx next start -p 3001 > "$T/out/bridge.log" 2>&1 < /dev/null &)
+    for i in $(seq 1 30); do curl -s -o /dev/null localhost:3001/login && break; sleep 1; done
+  else
+    bash "$T/rebuild_bridge.sh"
+  fi
+fi
+curl -s -m 5 -o /dev/null -w "mock %{http_code} " localhost:4900; curl -s -m 5 -o /dev/null -w "api %{http_code} " localhost:4000/api/health; curl -s -m 5 -o /dev/null -w "web %{http_code} " localhost:3000/login; curl -s -m 5 -o /dev/null -w "bridge %{http_code}\n" localhost:3001/login

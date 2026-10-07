@@ -1,7 +1,7 @@
 // WacMan (Wifirst Account Management) - modèle de données (Drizzle ORM, PostgreSQL)
 // Toute donnée métier est rattachée à un compte client (accounts).
 
-import { pgTable, pgEnum, uuid, text, integer, boolean, timestamp, date, jsonb, doublePrecision, index, uniqueIndex, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, pgEnum, uuid, text, integer, boolean, timestamp, date, jsonb, doublePrecision, index, uniqueIndex, primaryKey, customType } from "drizzle-orm/pg-core";
 
 const id = () => uuid("id").primaryKey().defaultRandom();
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -28,6 +28,13 @@ export const users = pgTable("users", {
   active: boolean("active").notNull().default(true),
   sessionVersion: integer("session_version").notNull().default(0),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  // Accès par application : WacMan (pilotage interne) et WiBridge (échanges avec les clients).
+  // Le super-administrateur a toujours les deux. Un compte créé depuis WiBridge n'a pas accès à WacMan.
+  wacmanAccess: boolean("wacman_access").notNull().default(true),
+  bridgeAccess: boolean("bridge_access").notNull().default(false),
+  // faux pour un compte invité qui n'a pas encore choisi son mot de passe
+  passwordSet: boolean("password_set").notNull().default(true),
+  bridgeLastLoginAt: timestamp("bridge_last_login_at", { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -490,4 +497,230 @@ export const assistantRuns = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("assistant_runs_account_idx").on(t.accountId, t.createdAt)],
+);
+
+// ---------------------------------------------------------------------------
+// WiBridge : échanges entre Wifirst et ses clients (questions, réponses, pièces jointes).
+// Interface distincte (apps/bridge), même API et même base. Données rattachées à un client WiBridge.
+// ---------------------------------------------------------------------------
+
+/** Organisation qui agit : PROVIDER (Wifirst) ou CLIENT (La Poste pour le premier client). */
+export const BRIDGE_PARTIES = ["PROVIDER", "CLIENT"] as const;
+export type BridgeParty = (typeof BRIDGE_PARTIES)[number];
+/** Droit d'un utilisateur sur un stream : masqué, lecture, éditeur client, éditeur Wifirst, éditeur des deux. */
+export const BRIDGE_ACCESS = ["NONE", "READ", "CLIENT", "PROVIDER", "BOTH"] as const;
+export type BridgeAccess = (typeof BRIDGE_ACCESS)[number];
+/** À traiter (attribuée, sans réponse de l'attributaire), en cours (réponse partielle), clôturée. */
+export const BRIDGE_STATUSES = ["OPEN", "IN_PROGRESS", "CLOSED"] as const;
+export type BridgeStatus = (typeof BRIDGE_STATUSES)[number];
+/** Préférence d'e-mail : à chaque attribution, récapitulatif quotidien, aucun. */
+export const BRIDGE_NOTIFY = ["IMMEDIATE", "DAILY", "NONE"] as const;
+export type BridgeNotify = (typeof BRIDGE_NOTIFY)[number];
+/** Issue d'un message : attribution (conservée ou changée), clôture, réouverture. */
+export const BRIDGE_OUTCOMES = ["ASSIGN", "CLOSE", "REOPEN"] as const;
+export type BridgeOutcome = (typeof BRIDGE_OUTCOMES)[number];
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+export const bridgeClients = pgTable("bridge_clients", {
+  id: id(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(), // nom de l'espace (« La Poste »)
+  clientName: text("client_name").notNull(), // libellé de l'organisation cliente
+  providerName: text("provider_name").notNull().default("Wifirst"),
+  shortName: text("short_name").notNull().default(""),
+  emoji: text("emoji").notNull().default("🤝"),
+  description: text("description").notNull().default(""), // mode d'emploi affiché en tête des questions
+  settings: jsonb("settings").notNull().default({}).$type<Record<string, unknown>>(),
+  archived: boolean("archived").notNull().default(false),
+  nextRef: integer("next_ref").notNull().default(1),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+const bridgeClientRef = () =>
+  uuid("client_id")
+    .notNull()
+    .references(() => bridgeClients.id, { onDelete: "cascade" });
+
+export const bridgeStreams = pgTable(
+  "bridge_streams",
+  {
+    id: id(),
+    clientId: bridgeClientRef(),
+    name: text("name").notNull(),
+    emoji: text("emoji").notNull().default(""),
+    order: integer("order").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("bridge_streams_client_idx").on(t.clientId)],
+);
+
+/** Accès d'un utilisateur à un client : organisation de rattachement, droit par défaut et droits par stream. */
+export const bridgeMembers = pgTable(
+  "bridge_members",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    clientId: bridgeClientRef(),
+    side: text("side").$type<BridgeParty>().notNull(),
+    defaultAccess: text("default_access").$type<BridgeAccess>().notNull().default("READ"),
+    // droits propres à certains streams ({ streamId: droit }) ; les autres streams suivent le droit par défaut
+    streamAccess: jsonb("stream_access").notNull().default({}).$type<Record<string, BridgeAccess>>(),
+    notify: text("notify").$type<BridgeNotify>().notNull().default("IMMEDIATE"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("bridge_members_user_client_uq").on(t.userId, t.clientId), index("bridge_members_client_idx").on(t.clientId)],
+);
+
+export const bridgeQuestions = pgTable(
+  "bridge_questions",
+  {
+    id: id(),
+    clientId: bridgeClientRef(),
+    ref: integer("ref").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull().default(""),
+    askedById: uuid("asked_by_id").references(() => users.id, { onDelete: "set null" }),
+    askedByName: text("asked_by_name").notNull().default(""),
+    askedByParty: text("asked_by_party").$type<BridgeParty>().notNull(),
+    assignedParty: text("assigned_party").$type<BridgeParty>().notNull(),
+    status: text("status").$type<BridgeStatus>().notNull().default("OPEN"),
+    dueDate: date("due_date", { mode: "string" }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedById: uuid("closed_by_id").references(() => users.id, { onDelete: "set null" }),
+    closedByName: text("closed_by_name").notNull().default(""),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("bridge_questions_client_ref_uq").on(t.clientId, t.ref), index("bridge_questions_client_status_idx").on(t.clientId, t.status)],
+);
+
+/** Une question peut relever de plusieurs streams. */
+export const bridgeQuestionStreams = pgTable(
+  "bridge_question_streams",
+  {
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => bridgeQuestions.id, { onDelete: "cascade" }),
+    streamId: uuid("stream_id")
+      .notNull()
+      .references(() => bridgeStreams.id),
+  },
+  (t) => [primaryKey({ columns: [t.questionId, t.streamId] }), index("bridge_question_streams_stream_idx").on(t.streamId)],
+);
+
+/** Échanges d'une question : chaque message porte son issue (attribution, clôture, réouverture). */
+export const bridgeMessages = pgTable(
+  "bridge_messages",
+  {
+    id: id(),
+    clientId: bridgeClientRef(),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => bridgeQuestions.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    authorName: text("author_name").notNull().default(""),
+    party: text("party").$type<BridgeParty>().notNull(), // organisation au nom de laquelle le message est écrit
+    body: text("body").notNull().default(""),
+    outcome: text("outcome").$type<BridgeOutcome>().notNull().default("ASSIGN"),
+    assignedBefore: text("assigned_before").$type<BridgeParty>(), // vide si la question était clôturée
+    assignedAfter: text("assigned_after").$type<BridgeParty>(), // vide si le message clôture la question
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("bridge_messages_question_idx").on(t.questionId, t.createdAt), index("bridge_messages_client_idx").on(t.clientId)],
+);
+
+/** Pièces jointes (contenu en base). Sans attachedAt, la pièce est en cours de rédaction et visible de son seul auteur. */
+export const bridgeFiles = pgTable(
+  "bridge_files",
+  {
+    id: id(),
+    clientId: bridgeClientRef(),
+    questionId: uuid("question_id").references(() => bridgeQuestions.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => bridgeMessages.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mime: text("mime").notNull().default("application/octet-stream"),
+    size: integer("size").notNull(),
+    data: bytea("data").notNull(),
+    uploadedById: uuid("uploaded_by_id").references(() => users.id, { onDelete: "set null" }),
+    uploadedByName: text("uploaded_by_name").notNull().default(""),
+    attachedAt: timestamp("attached_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("bridge_files_question_idx").on(t.questionId), index("bridge_files_client_idx").on(t.clientId)],
+);
+
+/** Historique de toutes les modifications (par question, et configuration du client quand questionId est vide). */
+export const bridgeEvents = pgTable(
+  "bridge_events",
+  {
+    id: id(),
+    clientId: bridgeClientRef(),
+    questionId: uuid("question_id").references(() => bridgeQuestions.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    summary: text("summary").notNull().default(""),
+    changes: jsonb("changes").notNull().default({}).$type<Record<string, unknown>>(),
+    userId: uuid("user_id"),
+    userName: text("user_name").notNull().default(""),
+    party: text("party").$type<BridgeParty>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("bridge_events_question_idx").on(t.questionId, t.createdAt), index("bridge_events_client_idx").on(t.clientId, t.createdAt)],
+);
+
+/** Appareils de confiance : le code par e-mail n'est demandé qu'à la première connexion depuis un appareil. */
+export const bridgeDevices = pgTable(
+  "bridge_devices",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    label: text("label").notNull().default(""),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("bridge_devices_user_idx").on(t.userId)],
+);
+
+/** Invitations à créer son compte WiBridge (lien à usage unique). */
+export const bridgeInvitations = pgTable(
+  "bridge_invitations",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedById: uuid("invited_by_id"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("bridge_invitations_user_idx").on(t.userId)],
+);
+
+/** Tâches planifiées déjà jouées (récapitulatif quotidien) : la clé (nom, jour) évite un double envoi. */
+export const bridgeJobs = pgTable(
+  "bridge_jobs",
+  {
+    name: text("name").notNull(),
+    day: date("day", { mode: "string" }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.name, t.day] })],
 );

@@ -82,7 +82,8 @@ export async function resolveApiToken(token: string): Promise<{ user: SessionUse
     .from(T.apiTokens)
     .innerJoin(T.users, eq(T.users.id, T.apiTokens.userId))
     .where(eq(T.apiTokens.tokenHash, sha(token)));
-  if (!row || row.t.revokedAt || !row.u.active) return null;
+  // un jeton n'est valable que pour un compte qui a toujours accès à WacMan
+  if (!row || row.t.revokedAt || !row.u.active || !(row.u.wacmanAccess || row.u.isSuperAdmin)) return null;
   if (row.t.expiresAt && row.t.expiresAt < new Date()) return null;
   // date de dernière utilisation, mise à jour au plus une fois par minute
   const now = Date.now();

@@ -7,8 +7,10 @@
   "scripts": {
     "dev:api": "npm run dev -w @wacman/api",
     "dev:web": "npm run dev -w @wacman/web",
+    "dev:bridge": "npm run dev -w @wacman/bridge",
     "build:api": "npm run build -w @wacman/api",
     "build:web": "npm run build -w @wacman/web",
+    "build:bridge": "npm run build -w @wacman/bridge",
     "db:migrate": "npm run migrate:dev -w @wacman/core",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },

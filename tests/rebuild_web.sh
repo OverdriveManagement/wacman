@@ -1,7 +1,7 @@
 #!/bin/bash
 # Reconstruit le front (next build, avec le contrôle des types et du lint) puis le relance sur le port 3000.
 T=$(cd "$(dirname "$0")" && pwd); ROOT=$(cd "$T/.." && pwd); mkdir -p "$T/out"
-for p in $(pgrep next-server); do kill $p; done
+fuser -k 3000/tcp >/dev/null 2>&1   # seul le front WacMan (WiBridge écoute sur le port 3001)
 sleep 1
 cd "$ROOT/apps/web"
 NEXT_PUBLIC_API_URL=http://localhost:4000 API_ORIGIN=http://localhost:4000 npx next build > "$T/out/build.log" 2>&1 || { echo "BUILD FAILED"; tail -30 "$T/out/build.log"; exit 1; }

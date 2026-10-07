@@ -13,3 +13,4 @@ export * from "./services/tokens.js";
 export * from "./services/insights.js";
 export * from "./markup.js";
 export * from "./services/review.js";
+export * as Bridge from "./bridge/index.js";

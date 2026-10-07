@@ -36,6 +36,13 @@
       "when": 1791139300486,
       "tag": "0004_actions_decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791353436077,
+      "tag": "0005_bridge",
+      "breakpoints": true
     }
   ]
 }
