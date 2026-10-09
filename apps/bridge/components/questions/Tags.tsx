@@ -3,7 +3,8 @@
 import { useRef, useState } from "react";
 import type { Party, Question, QStatus } from "@/lib/types";
 import { useCl, useQuestionActions } from "../ClientContext";
-import { Popover, TagMulti, TagSelect, type TagOption } from "../Tag";
+import { DateTag, Popover, TagMulti, TagSelect, type TagOption } from "../Tag";
+import { isOverdue } from "@/lib/format";
 import { useSubmit } from "../ui";
 
 /** Étiquettes des questions : organisation, statut (avec les actions possibles), attribution, streams. */
@@ -110,4 +111,11 @@ export function StreamsTag({ q, wrap = false }: { q: Question; wrap?: boolean })
       onChange={(v) => v.length && act.update(q.id, { streamIds: v })}
     />
   );
+}
+
+/** Échéance souhaitée, modifiable par qui peut modifier la question ; en rouge si dépassée sur une question ouverte. */
+export function DueTag({ q, small = false, emptyLabel }: { q: Question; small?: boolean; emptyLabel?: string }) {
+  const act = useQuestionActions();
+  const late = q.status !== "CLOSED" && isOverdue(q.dueDate);
+  return <DateTag small={small} label="Échéance" emptyLabel={emptyLabel} disabled={!q.perms.edit || !!q.deletedAt} value={q.dueDate} danger={late} onChange={(v) => act.update(q.id, { dueDate: v })} />;
 }

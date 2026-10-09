@@ -360,7 +360,28 @@ export function TagMulti({
 }
 
 /** Date affichée comme une étiquette ; un clic ouvre un petit sélecteur (avec « Effacer »). */
-export function DateTag({ value, onChange, label, disabled, min, max, danger, small = false }: { value: string | null; onChange: (v: string | null) => void; label: string; disabled?: boolean; min?: string | null; max?: string | null; danger?: boolean; small?: boolean }) {
+export function DateTag({
+  value,
+  onChange,
+  label,
+  disabled,
+  min,
+  max,
+  danger,
+  small = false,
+  emptyLabel,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  label: string;
+  disabled?: boolean;
+  min?: string | null;
+  max?: string | null;
+  danger?: boolean;
+  small?: boolean;
+  /** texte cliquable à la place de la pastille « + » quand la date est vide */
+  emptyLabel?: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLButtonElement>(null);
   // la date saisie n'est enregistrée qu'à la fermeture (OK, Entrée, clic à l'extérieur), pas à chaque chiffre tapé
@@ -381,6 +402,10 @@ export function DateTag({ value, onChange, label, disabled, min, max, danger, sm
       {value ? (
         <button ref={ref} type="button" className="rounded-md px-1 py-0.5 -mx-1 transition hover:bg-surface-2" onClick={show} title={`${label} : cliquer pour changer`} aria-label={`${label} : ${frDate(value)}`}>
           {text}
+        </button>
+      ) : emptyLabel ? (
+        <button ref={ref} type="button" className="text-sm text-muted underline decoration-dotted underline-offset-2 transition hover:text-accent" onClick={show} aria-label={`Ajouter : ${label}`}>
+          {emptyLabel}
         </button>
       ) : (
         <EmptyDot label={label} onClick={show} btnRef={ref} />

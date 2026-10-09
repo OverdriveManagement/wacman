@@ -4,16 +4,16 @@ import Link from "next/link";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { download, fetcher } from "@/lib/api";
-import { dateTime, frDate, isOverdue, relative, todayIso } from "@/lib/format";
+import { dateTime, frDate, relative, todayIso } from "@/lib/format";
 import { useClient, useMe, useQuestions } from "@/lib/hooks";
 import type { Party, Question } from "@/lib/types";
 import { ClientContext, useCl, useQuestionActions } from "@/components/ClientContext";
 import { TopBar } from "@/components/TopBar";
 import { Disclosure, Empty, InlineText, Spinner, Toggle, useConfirm } from "@/components/ui";
-import { DateTag, Popover } from "@/components/Tag";
+import { Popover } from "@/components/Tag";
 import { Markdown } from "@/components/Markdown";
 import { IconChevron, IconClock, IconClip, IconDownload, IconFilter, IconPlus, IconSearch, IconUpload, IconX } from "@/components/icons";
-import { AssignTag, PartyTag, StatusTag, StreamsTag, partyColor } from "@/components/questions/Tags";
+import { AssignTag, DueTag, PartyTag, StatusTag, StreamsTag, partyColor } from "@/components/questions/Tags";
 import { Thread } from "@/components/questions/Thread";
 import { HistoryModal } from "@/components/questions/History";
 import { NavetteImport } from "@/components/questions/NavetteImport";
@@ -668,11 +668,6 @@ function Body({ q }: { q: Question }) {
   );
 }
 
-function Due({ q, small = false }: { q: Question; small?: boolean }) {
-  const act = useQuestionActions();
-  const late = q.status !== "CLOSED" && isOverdue(q.dueDate);
-  return <DateTag small={small} label="Échéance" disabled={!q.perms.edit || !!q.deletedAt} value={q.dueDate} danger={late} onChange={(v) => act.update(q.id, { dueDate: v })} />;
-}
 
 /**
  * Un clic n'importe où sur une question repliée la déplie. Sur le sujet et le texte (`data-expand-only`), ce premier clic
@@ -740,7 +735,7 @@ function Row({ q, open, onToggle, onExpand, onHistory, flash }: { q: Question; o
         <Exchanges q={q} open={open} onToggle={onToggle} />
       </td>
       <td>
-        <Due q={q} small />
+        <DueTag q={q} small />
       </td>
       <td className="whitespace-nowrap text-xs" title={dateTime(q.lastActivityAt)}>
         {relative(q.lastActivityAt)}
@@ -787,7 +782,7 @@ function CardItem({ q, open, onToggle, onExpand, onHistory, flash }: { q: Questi
           </span>
           {(q.dueDate || (q.perms.edit && !q.deletedAt)) && (
             <span className="inline-flex items-center gap-1">
-              Échéance <Due q={q} />
+              Échéance <DueTag q={q} />
             </span>
           )}
         </div>

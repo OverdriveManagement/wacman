@@ -194,7 +194,7 @@ with sync_playwright() as p:
     check("sujet modifié en place", wf_api.req("GET", f"{BASE}/questions/{atm['id']}")[1]["subject"] == "Liste des ATM et des automates")
 
     # texte de la question dans le fil : édition avec la barre d'outils (bouton Italique)
-    body = pg.locator(f"[data-thread='{atm['ref']}'] [role=button]").first
+    body = pg.locator(f"[data-thread='{atm['ref']}'] [data-question-body] [role=button]").first
     body.click()
     tq = pg.locator(f"[data-thread='{atm['ref']}'] textarea").first
     tq.evaluate("el => { el.focus(); el.setSelectionRange(0, 6); }")
@@ -232,6 +232,26 @@ with sync_playwright() as p:
     pg.wait_for_selector("#wib-popover")
     check("clic sur une étiquette : choix ouvert et question dépliée", pg.locator(thread_cal).count() == 1)
     pg.keyboard.press("Escape")
+
+    # question dépliée : tous ses éléments sont modifiables, dont l'échéance (vide au départ)
+    sec_row = f"tr[data-question-ref='{q_sec['ref']}']"
+    th_sec = f"[data-thread='{q_sec['ref']}']"
+    pg.click(f"{sec_row} td:nth-child(10)")
+    pg.wait_for_selector(f"{th_sec} [data-question-fields]")
+    fields = pg.inner_text(f"{th_sec} [data-question-fields]").lower()
+    check("question dépliée : sujet, statut, attribution, échéance et streams", all(t in fields for t in ["sujet", "statut", "attribuée à", "échéance", "streams"]), fields[:200])
+    pg.click(f"{th_sec} [data-question-due] button:has-text('Ajouter une échéance')")
+    pg.fill("#wib-popover input[type=date]", "2026-11-15")
+    pg.click("#wib-popover button:has-text('OK')")
+    pg.wait_for_timeout(800)
+    check("question dépliée : échéance ajoutée", wf_api.req("GET", f"{BASE}/questions/{q_sec['id']}")[1]["dueDate"] == "2026-11-15")
+    pg.click(f"{th_sec} [data-question-subject] [role=button]")
+    pg.fill(f"{th_sec} [data-question-subject] input", "Contacts sécurité pour les tests d'intrusion (V2)")
+    pg.keyboard.press("Enter")
+    pg.wait_for_timeout(800)
+    check("question dépliée : sujet modifié", wf_api.req("GET", f"{BASE}/questions/{q_sec['id']}")[1]["subject"].endswith("(V2)"))
+    pg.screenshot(path=f"{OUT}/bridge_question_fields.png")
+    pg.click(f"{sec_row} button[aria-label='Masquer les échanges']")
 
     # tri par colonne
     pg.click("thead button[data-sort=ref]")

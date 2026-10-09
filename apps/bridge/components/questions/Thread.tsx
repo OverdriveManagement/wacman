@@ -12,7 +12,7 @@ import { RichTextarea } from "../RichText";
 import { InlineText, Spinner, useConfirm, useSubmit } from "../ui";
 import { Menu } from "../Menu";
 import { AttachedFiles, PendingFiles, usePendingFiles } from "./Attachments";
-import { PartyTag, other, partyColor } from "./Tags";
+import { AssignTag, DueTag, PartyTag, StatusTag, StreamsTag, other, partyColor } from "./Tags";
 
 /** Fil d'échanges d'une question : la question, chaque réponse avec son issue, puis la zone de réponse. */
 
@@ -51,6 +51,49 @@ function OutcomeBadge({ m }: { m: Message }) {
   );
 }
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <div className="mb-0.5 text-[0.65rem] font-semibold uppercase tracking-wider text-muted">{children}</div>;
+}
+
+/**
+ * Tous les éléments de la question, modifiables dans la question dépliée selon les droits : sujet, statut, attribution,
+ * échéance et streams (le texte et les pièces jointes suivent).
+ */
+function QuestionFields({ d }: { d: QuestionDetail }) {
+  const act = useQuestionActions();
+  const editable = d.perms.edit && !d.deletedAt;
+  return (
+    <div className="mb-2.5 space-y-2.5 border-b border-line-soft pb-2.5" data-question-fields>
+      <div data-question-subject>
+        <FieldLabel>Sujet</FieldLabel>
+        {editable ? (
+          <InlineText value={d.subject} onSave={(v) => (v.trim() ? act.update(d.id, { subject: v.trim() }) : undefined)} render={(v) => <span className="text-sm font-semibold text-ink [overflow-wrap:anywhere]">{v}</span>} />
+        ) : (
+          <div className="text-sm font-semibold text-ink [overflow-wrap:anywhere]">{d.subject}</div>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 xl:grid-cols-4">
+        <div>
+          <FieldLabel>Statut</FieldLabel>
+          <StatusTag q={d} />
+        </div>
+        <div>
+          <FieldLabel>Attribuée à</FieldLabel>
+          <AssignTag q={d} />
+        </div>
+        <div data-question-due>
+          <FieldLabel>Échéance</FieldLabel>
+          <DueTag q={d} emptyLabel="Ajouter une échéance" />
+        </div>
+        <div className="min-w-0">
+          <FieldLabel>Streams</FieldLabel>
+          <StreamsTag q={d} wrap />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Bubble({ party, children }: { party: Party; children: React.ReactNode }) {
   return (
     <div className="rounded-xl border border-line-soft bg-surface px-3 py-2.5" style={{ borderLeft: `3px solid ${partyColor(party)}` }}>
@@ -78,14 +121,18 @@ export function Thread({ id }: { id: string }) {
               <PartyTag party={d.askedByParty} />
               <span title={dateTime(d.createdAt)}>a posé la question le {dateTime(d.createdAt)}</span>
             </div>
-            <InlineText
-              multiline
-              disabled={!d.perms.edit || !!d.deletedAt}
-              value={d.body}
-              placeholder="Ajouter le texte de la question…"
-              className="text-sm text-ink-2"
-              onSave={(v) => act.update(d.id, { body: v })}
-            />
+            <QuestionFields d={d} />
+            <FieldLabel>Question</FieldLabel>
+            <div data-question-body>
+              <InlineText
+                multiline
+                disabled={!d.perms.edit || !!d.deletedAt}
+                value={d.body}
+                placeholder="Ajouter le texte de la question…"
+                className="text-sm text-ink-2"
+                onSave={(v) => act.update(d.id, { body: v })}
+              />
+            </div>
             <AttachedFiles questionId={d.id} files={qFiles} canAdd={d.perms.edit && !d.deletedAt} />
           </Bubble>
         </div>
