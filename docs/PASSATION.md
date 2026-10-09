@@ -1,6 +1,6 @@
 # WacMan : dossier de passation vers un autre compte Claude
 
-Mis à jour le 9 octobre 2026 : version en ligne **V1.6** de WacMan et **V1.4** de WiBridge (espace d'échange de questions avec les clients, livré le 7 octobre 2026).
+Mis à jour le 9 octobre 2026 : version en ligne **V1.6** de WacMan et **V1.5** de WiBridge (espace d'échange de questions avec les clients, livré le 7 octobre 2026).
 
 Ce document rassemble tout ce qu'il faut pour reprendre le développement de WacMan depuis un autre compte Claude : le contexte, l'historique, la méthode de travail suivie jusqu'ici, les accès à ouvrir et les pièges déjà rencontrés. Il ne contient aucun secret.
 
@@ -97,6 +97,7 @@ Avec le connecteur Vercel, passer l'identifiant du projet sans préciser l'équi
 | 07/10/2026 | WiBridge V1.2 | mot de passe oublié : e-mail d'explication pour une adresse sans compte WiBridge |
 | 09/10/2026 | WiBridge V1.3 | fiche navette : export Excel à un onglet avec colonnes de réponse, réimport avec aperçu |
 | 09/10/2026 | WiBridge V1.4 | question dépliée : tous ses éléments modifiables (sujet, statut, attribution, échéance, streams) |
+| 09/10/2026 | WiBridge V1.5 | une seule question dépliée à la fois |
 
 Données reprises en production par les migrations : dates « Mis à jour » Notion des cartes La Poste (0003) ; 7 actions du COPROJ LP du 01/10/2026, 4 décisions du Strategic Committee du 29/09/2026 tirées des sujets, réglages d'e-mail du COPROJ LP (0004) ; client WiBridge La Poste, ses 7 streams et l'accès du super-administrateur (0005).
 

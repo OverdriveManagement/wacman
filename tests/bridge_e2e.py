@@ -217,6 +217,7 @@ with sync_playwright() as p:
     pg.click(f"{other} td:nth-child(10)")  # colonne Mise à jour, sans bouton
     pg.wait_for_selector(thread_cal)
     check("clic sur la ligne : question dépliée", pg.locator(thread_cal).count() == 1)
+    check("une seule question dépliée à la fois", pg.locator("[data-thread]").count() == 1 and pg.locator(f"[data-thread='{atm['ref']}']").count() == 0)
     pg.click(f"{other} button[aria-label='Masquer les échanges']")
     pg.wait_for_timeout(300)
     check("flèche : question repliée", pg.locator(thread_cal).count() == 0)

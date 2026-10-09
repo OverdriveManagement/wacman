@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type MouseEvent as ReactMouseEvent } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { download, fetcher } from "@/lib/api";
 import { dateTime, frDate, relative, todayIso } from "@/lib/format";
@@ -194,13 +194,31 @@ function QuestionsView() {
     return () => clearTimeout(t);
   }, [q, cl.base]);
 
-  const toggle = (id: string, force?: boolean) =>
+  // une seule question dépliée à la fois : en déplier une replie les autres (les brouillons de réponse restent gardés)
+  const anchor = useRef<{ ref: number; top: number } | null>(null);
+  const toggle = (id: string, force?: boolean) => {
+    const opening = force ?? !openIds.has(id);
+    const ref = (questions ?? []).find((x) => x.id === id)?.ref;
+    // la question cliquée garde sa place à l'écran quand une question dépliée au-dessus se replie
+    const el = opening && ref !== undefined ? document.querySelector(`[data-question-ref="${ref}"]`) : null;
+    anchor.current = el && ref !== undefined ? { ref, top: el.getBoundingClientRect().top } : null;
     setOpenIds((s) => {
-      const n = new Set(s);
-      if (force ?? !n.has(id)) n.add(id);
-      else n.delete(id);
-      return n;
+      if (!opening) {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      }
+      return s.size === 1 && s.has(id) ? s : new Set([id]);
     });
+  };
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    anchor.current = null;
+    if (!a) return;
+    const el = document.querySelector(`[data-question-ref="${a.ref}"]`);
+    const shift = el ? el.getBoundingClientRect().top - a.top : 0;
+    if (Math.abs(shift) > 1) window.scrollBy(0, shift);
+  }, [openIds]);
 
   // lien direct ?q=12 (e-mails) : la question est dépliée et mise en évidence
   const linked = params.get("q");
