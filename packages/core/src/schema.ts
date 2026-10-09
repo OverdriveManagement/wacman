@@ -638,6 +638,8 @@ export const bridgeMessages = pgTable(
     // message supprimé par son auteur (ou par Wifirst) : le texte est retiré, l'issue reste affichée, le texte reste à l'historique
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedByName: text("deleted_by_name").notNull().default(""),
+    // origine du message : "" (écran) ou "navette" (réponse importée depuis la fiche navette Excel)
+    source: text("source").notNull().default(""),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

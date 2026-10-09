@@ -1,0 +1,1 @@
+ALTER TABLE "bridge_messages" ADD COLUMN "source" text DEFAULT '' NOT NULL;

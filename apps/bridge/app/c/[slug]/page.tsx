@@ -12,10 +12,11 @@ import { TopBar } from "@/components/TopBar";
 import { Disclosure, Empty, InlineText, Spinner, Toggle, useConfirm } from "@/components/ui";
 import { DateTag, Popover } from "@/components/Tag";
 import { Markdown } from "@/components/Markdown";
-import { IconChevron, IconClock, IconClip, IconDownload, IconFilter, IconPlus, IconSearch, IconX } from "@/components/icons";
+import { IconChevron, IconClock, IconClip, IconDownload, IconFilter, IconPlus, IconSearch, IconUpload, IconX } from "@/components/icons";
 import { AssignTag, PartyTag, StatusTag, StreamsTag, partyColor } from "@/components/questions/Tags";
 import { Thread } from "@/components/questions/Thread";
 import { HistoryModal } from "@/components/questions/History";
+import { NavetteImport } from "@/components/questions/NavetteImport";
 import { NewQuestionModal } from "@/components/questions/NewQuestion";
 import { Menu } from "@/components/Menu";
 
@@ -165,6 +166,10 @@ function QuestionsView() {
   const [serverHits, setServerHits] = useState<Set<string> | null>(null);
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<Question | null>(null);
+  // fiche navette : import réservé aux personnes qui peuvent répondre quelque part (pas aux lecteurs)
+  const [navetteFile, setNavetteFile] = useState<File | null>(null);
+  const navetteInput = useRef<HTMLInputElement>(null);
+  const canAnswer = cl.data.me.isSuperAdmin || Object.values(cl.data.me.access).some((a) => a !== "NONE" && a !== "READ");
   const [creating, setCreating] = useState(false);
   const [flash, setFlash] = useState<number | null>(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -285,9 +290,31 @@ function QuestionsView() {
               <IconPlus /> Nouvelle question
             </button>
           )}
-          <button className="btn" onClick={() => download(`${cl.base}/export.xlsx?status=${view.status}`)} title="Exporter les questions affichées (statut choisi) en Excel">
-            <IconDownload /> <span className="hidden sm:inline">Excel</span>
+          <button
+            className="btn"
+            onClick={() => download(`${cl.base}/export.xlsx?status=${view.status}&assigned=${view.assigned}${view.stream ? `&stream=${view.stream}` : ""}`)}
+            title="Exporter la fiche navette Excel des questions affichées (statut, attribution et stream choisis), avec des colonnes pour répondre"
+          >
+            <IconDownload /> <span className="hidden sm:inline">Fiche navette</span>
           </button>
+          {canAnswer && !trash && (
+            <>
+              <button className="btn" onClick={() => navetteInput.current?.click()} title="Importer une fiche navette remplie : réponses et nouveaux attribués">
+                <IconUpload /> <span className="hidden sm:inline">Importer</span>
+              </button>
+              <input
+                ref={navetteInput}
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                aria-label="Fiche navette à importer"
+                onChange={(e) => {
+                  setNavetteFile(e.target.files?.[0] ?? null);
+                  e.target.value = "";
+                }}
+              />
+            </>
+          )}
           {me.isSuperAdmin && (
             <Menu
               label="Plus d'actions"
@@ -457,6 +484,7 @@ function QuestionsView() {
       )}
 
       <HistoryModal q={history} onClose={() => setHistory(null)} />
+      <NavetteImport file={navetteFile} onClose={() => setNavetteFile(null)} />
       <NewQuestionModal
         open={creating}
         onClose={() => setCreating(false)}

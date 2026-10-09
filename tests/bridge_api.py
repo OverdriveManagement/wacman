@@ -501,16 +501,102 @@ st, x = lp.req("GET", f"{base}/export.xlsx?status=all")
 try:
     import openpyxl
 
+    # fiche navette : un seul onglet, colonnes de réponse, identifiants cachés
     wb = openpyxl.load_workbook(io.BytesIO(x))
-    check("export Excel : onglets", wb.sheetnames == ["Questions", "Échanges"], str(wb.sheetnames))
-    ws = wb["Questions"]
-    hdr = [c.value for c in ws[1]]
-    check("export Excel : colonnes", hdr[:4] == ["Réf.", "Sujet", "Question", "Streams"], str(hdr))
-    subjects = [r[1].value for r in ws.iter_rows(min_row=2)]
-    check("export Excel : questions visibles", any(s and s.startswith("Liste des ATM") for s in subjects), str(subjects)[:200])
+    check("fiche navette : un seul onglet", wb.sheetnames == ["Fiche navette"], str(wb.sheetnames))
+    ws = wb["Fiche navette"]
+    hdr = {c.value: c.column for c in ws[5] if c.value}
+    check("fiche navette : colonnes", all(k in hdr for k in ["Réf.", "Sujet", "Question", "Échanges", "Votre réponse", "Nouvel attribué", "ID", "Version"]), str(hdr))
+    check("fiche navette : identifiants cachés", ws.column_dimensions[openpyxl.utils.get_column_letter(hdr["ID"])].hidden)
+    subjects = [r[hdr["Sujet"] - 1].value for r in ws.iter_rows(min_row=6)]
+    check("fiche navette : questions visibles", any(s and s.startswith("Liste des ATM") for s in subjects), str(subjects)[:200])
     st, x2 = sec.req("GET", f"{base}/export.xlsx?status=all")
-    s2 = [r[1].value for r in openpyxl.load_workbook(io.BytesIO(x2))["Questions"].iter_rows(min_row=2)]
-    check("export Excel : limité aux droits", all("ATM" not in (s or "") for s in s2), str(s2)[:200])
+    w2 = openpyxl.load_workbook(io.BytesIO(x2))["Fiche navette"]
+    s2 = [r[1].value for r in w2.iter_rows(min_row=6)]
+    check("fiche navette : limitée aux droits", all("ATM" not in (s or "") for s in s2), str(s2)[:200])
+    st, x3 = lp.req("GET", f"{base}/export.xlsx?status=open&assigned=CLIENT")
+    w3 = openpyxl.load_workbook(io.BytesIO(x3))["Fiche navette"]
+    a3 = {r[hdr["Attribuée à"] - 1].value for r in w3.iter_rows(min_row=6)}
+    check("fiche navette : filtre d'attribution", a3 == {"La Poste"}, str(a3))
+
+    def navette(session, query, fills):
+        """Exporte la fiche navette, remplit les colonnes de réponse ({réf: (réponse, nouvel attribué)}) et renvoie le fichier."""
+        st, data = session.req("GET", f"{base}/export.xlsx?{query}")
+        book = openpyxl.load_workbook(io.BytesIO(data))
+        sh = book["Fiche navette"]
+        h = {c.value: c.column for c in sh[5] if c.value}
+        for row in sh.iter_rows(min_row=6):
+            ref = row[h["Réf."] - 1].value
+            if ref in fills:
+                sh.cell(row[0].row, h["Votre réponse"]).value = fills[ref][0]
+                sh.cell(row[0].row, h["Nouvel attribué"]).value = fills[ref][1]
+        out = io.BytesIO()
+        book.save(out)
+        return out.getvalue()
+
+    def preview(session, data):
+        return session.req("POST", f"{base}/navette/preview", raw=data, headers={"Content-Type": "application/octet-stream"})
+
+    def apply(session, items):
+        return session.req("POST", f"{base}/navette/apply", {"items": [{k: i[k] for k in ("line", "questionId", "body", "target", "version")} for i in items if not i["error"]]})
+
+    _, na = create(wf, f"Navette A {RUN}", ["Déploiement"], assignedParty="CLIENT")
+    _, nb = create(wf, f"Navette B {RUN}", ["Déploiement"], assignedParty="CLIENT")
+    _, nc = create(lp, f"Navette C {RUN}", ["Déploiement"])
+    _, nd = create(wf, f"Navette D {RUN}", ["Déploiement"], assignedParty="CLIENT")
+    _, ne = create(wf, f"Navette E {RUN}", ["Déploiement"], assignedParty="CLIENT")
+    _, nf = create(wf, f"Navette F {RUN}", ["Déploiement"], assignedParty="CLIENT")
+    fills = {
+        na["ref"]: ("Voici la liste.\nAvec un retour à la ligne.", None),
+        nb["ref"]: ("Premiers éléments, la suite vendredi.", "La Poste"),
+        nc["ref"]: ("Je complète ma question.", None),
+        nd["ref"]: (None, "Clôturer"),
+        ne["ref"]: (None, "wifirst"),
+        nf["ref"]: ("Réponse", "Peut-être"),
+    }
+    data = navette(lp, "status=open", fills)
+    st, p = preview(lp, data)
+    by = {i["ref"]: i for i in p["items"]} if st == 200 else {}
+    check("navette, aperçu : lignes remplies seulement", st == 200 and set(by) == set(fills) and p["ready"] == 4, str(p)[:400])
+    check("navette, aperçu : réponse de l'attribué, renvoyée à l'autre organisation", by.get(na["ref"], {}).get("action") == "answer" and by[na["ref"]]["outcome"] == "PROVIDER" and "Réponse de La Poste" in by[na["ref"]]["summary"], str(by.get(na["ref"]))[:300])
+    check("navette, aperçu : attribution conservée", by.get(nb["ref"], {}).get("outcome") == "CLIENT", str(by.get(nb["ref"]))[:300])
+    check("navette, aperçu : question attribuée à Wifirst refusée au client", "vous ne pouvez pas y répondre" in (by.get(nc["ref"], {}).get("error") or ""), str(by.get(nc["ref"]))[:300])
+    check("navette, aperçu : clôture et changement d'attribution sans réponse", by.get(nd["ref"], {}).get("action") == "close" and by.get(ne["ref"], {}).get("action") == "assign", str([by.get(nd["ref"]), by.get(ne["ref"])])[:300])
+    check("navette, aperçu : nouvel attribué non reconnu", "non reconnu" in (by.get(nf["ref"], {}).get("error") or ""), str(by.get(nf["ref"]))[:300])
+    st, r = apply(lp, p["items"])
+    check("navette : import appliqué", st == 200 and r["done"] == 4 and r["failed"] == 0, str(r)[:300])
+    da = lp.req("GET", f"{base}/questions/{na['id']}")[1]
+    check("navette : réponse enregistrée, marquée fiche navette", da["assignedParty"] == "PROVIDER" and da["status"] == "OPEN" and da["messages"][-1]["source"] == "navette" and da["messages"][-1]["party"] == "CLIENT" and da["messages"][-1]["body"] == "Voici la liste.\nAvec un retour à la ligne.", str(da)[:300])
+    db_ = lp.req("GET", f"{base}/questions/{nb['id']}")[1]
+    check("navette : réponse partielle, en cours", db_["status"] == "IN_PROGRESS" and db_["assignedParty"] == "CLIENT", str(db_)[:200])
+    check("navette : clôture et attribution", lp.req("GET", f"{base}/questions/{nd['id']}")[1]["status"] == "CLOSED" and lp.req("GET", f"{base}/questions/{ne['id']}")[1]["assignedParty"] == "PROVIDER")
+    st, h = lp.req("GET", f"{base}/questions/{na['id']}/history")
+    check("navette : historique", any("fiche navette" in e["summary"] for e in h), str([e["summary"] for e in h])[:300])
+    st, p2 = preview(lp, data)
+    check("navette : second import du même fichier sans effet", st == 200 and p2["ready"] == 0 and "déjà dans les échanges" in (next(i for i in p2["items"] if i["ref"] == na["ref"])["error"] or ""), str(p2)[:400])
+    # question clôturée : un nouvel attribué la rouvre avec la réponse
+    data = navette(lp, "status=all", {nd["ref"]: ("Finalement, il manque un site.", "Wifirst")})
+    st, p3 = preview(lp, data)
+    i3 = p3["items"][0] if st == 200 and p3["items"] else {}
+    check("navette : réouverture d'une question clôturée", i3.get("action") == "reopen", str(p3)[:300])
+    apply(lp, p3["items"])
+    dd = lp.req("GET", f"{base}/questions/{nd['id']}")[1]
+    check("navette : rouverte, attribuée à Wifirst, avec la réponse", dd["status"] == "OPEN" and dd["assignedParty"] == "PROVIDER" and dd["messages"][-1]["outcome"] == "REOPEN", str(dd)[:300])
+    # Wifirst complète à la place du client ; la question a changé depuis l'export : avertissement
+    _, ng = create(wf, f"Navette G {RUN}", ["Déploiement"], assignedParty="CLIENT")
+    data = navette(wf, "status=open", {ng["ref"]: ("Réponse transmise par La Poste en réunion.", None)})
+    wf.req("PATCH", f"{base}/questions/{ng['id']}", {"dueDate": "2026-12-01"})
+    st, p4 = preview(wf, data)
+    i4 = p4["items"][0] if st == 200 and p4["items"] else {}
+    check("navette, Wifirst : réponse de Wifirst à la place du client, attribution conservée", i4.get("party") == "PROVIDER" and i4.get("outcome") == "CLIENT", str(i4)[:300])
+    check("navette : avertissement si la question a changé depuis l'export", "changé depuis l'export" in (i4.get("warning") or ""), str(i4)[:300])
+    # fichiers refusés
+    st, r = preview(lp, b"pas un fichier excel")
+    check("navette : fichier illisible refusé", st == 400 and "illisible" in str(r), str(r)[:200])
+    empty = io.BytesIO()
+    openpyxl.Workbook().save(empty)
+    st, r = preview(lp, empty.getvalue())
+    check("navette : classeur sans colonnes de réponse refusé", st == 400 and "fiche navette" in str(r), str(r)[:200])
 except ImportError:
     print("    (openpyxl absent : contrôle du fichier Excel ignoré)")
 

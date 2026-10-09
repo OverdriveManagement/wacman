@@ -128,10 +128,11 @@ WiBridge partage l'API, la base, Resend et le dépôt de WacMan. Spécification 
 | `packages/core/src/bridge/auth.ts` | connexion, appareils de confiance, invitations, mot de passe oublié, profil, préférences de notification |
 | `packages/core/src/bridge/admin.ts` | administration : clients, streams, règles, utilisateurs, droits, journal |
 | `packages/core/src/bridge/notify.ts` | événements à notifier, destinataires, récapitulatif quotidien |
+| `packages/core/src/bridge/navette.ts` | fiche navette : lecture de la colonne « Nouvel attribué » (`parseNavetteTarget`), analyse des lignes (`planNavette`), application par les services de questions avec l'origine « navette » (`applyNavette`) |
 | `apps/api/src/bridge/routes.ts` | routes `/api/bridge/*` |
 | `apps/api/src/bridge/session.ts` | cookies et jetons WiBridge |
 | `apps/api/src/bridge/mail.ts` | e-mails (gabarits, envoi Resend, boîte d'envoi de développement) ; `noAccessMail` répond à un mot de passe oublié demandé pour une adresse sans compte WiBridge actif (`bridgeStartReset` renvoie alors `noAccess`) |
-| `apps/api/src/bridge/xlsx.ts` | export Excel |
+| `apps/api/src/bridge/xlsx.ts` | fiche navette Excel (exceljs) : export d'un onglet avec colonnes de réponse, liste de choix et colonnes cachées ID et Version (`buildNavetteWorkbook`), relecture du fichier rempli (`readNavette`, colonnes retrouvées par leur titre) |
 | `apps/api/src/bridge/scheduler.ts` | récapitulatif quotidien |
 | `apps/bridge` | interface |
 
@@ -146,7 +147,7 @@ Le service exporte `Bridge` depuis `@wacman/core` (`import { Bridge } from "@wac
 | `bridge_members` | accès d'un utilisateur à un client : `side` (PROVIDER ou CLIENT), `default_access`, `stream_access` (droits particuliers `{stream: droit}`), `notify` (IMMEDIATE, DAILY ou NONE, NONE par défaut depuis la V1.1) ; unique par utilisateur et client |
 | `bridge_questions` | `ref` (unique par client), `subject`, `body`, `asked_by_id`, `asked_by_name`, `asked_by_party`, `assigned_party`, `status` (OPEN, IN_PROGRESS, CLOSED), `due_date`, `closed_at`, `closed_by_*`, `last_activity_at`, `deleted_at` |
 | `bridge_question_streams` | streams d'une question (clé double) ; la clé étrangère vers le stream empêche de supprimer un stream utilisé |
-| `bridge_messages` | échanges : auteur, `party`, `body`, `outcome` (ASSIGN, CLOSE, REOPEN), `assigned_before`, `assigned_after`, `edited_at`, `deleted_at` et `deleted_by_name` (réponse supprimée : texte vidé, pièces jointes effacées, ligne gardée pour l'issue ; exclue des compteurs, de la recherche et de l'export) |
+| `bridge_messages` | échanges : auteur, `party`, `body`, `outcome` (ASSIGN, CLOSE, REOPEN), `assigned_before`, `assigned_after`, `edited_at`, `source` (`navette` pour une réponse importée depuis la fiche navette), `deleted_at` et `deleted_by_name` (réponse supprimée : texte vidé, pièces jointes effacées, ligne gardée pour l'issue ; exclue des compteurs, de la recherche et de l'export) |
 | `bridge_files` | pièces jointes en `bytea` (20 Mo au plus) ; `attached_at` vide pour un dépôt pas encore envoyé, purgé au bout de 24 heures |
 | `bridge_events` | journal et historique : `action`, `summary`, `changes` (valeurs ou paires avant, après), auteur et organisation |
 | `bridge_devices` | appareils de confiance : jeton haché (SHA-256), libellé, dernière utilisation, expiration, révocation |
@@ -172,13 +173,13 @@ Le service exporte `Bridge` depuis `@wacman/core` (`import { Bridge } from "@wac
 | Groupe | Routes |
 |---|---|
 | Connexion et compte | `POST /api/bridge/auth/login`, `verify`, `logout`, `forgot`, `reset`, `password`, `invitation/info`, `invitation/accept` ; `GET` et `PATCH /api/bridge/auth/me` ; `GET /api/bridge/auth/devices`, `DELETE devices/:id`, `POST devices/revoke-all` ; `GET upload-token` |
-| Client | `GET /api/bridge/c/:client` (client, streams, droits, préférences), `POST /api/bridge/c/:client/notify`, `GET search?q=`, `GET export.xlsx?status=` |
+| Client | `GET /api/bridge/c/:client` (client, streams, droits, préférences), `POST /api/bridge/c/:client/notify`, `GET search?q=`, `GET export.xlsx?status=&assigned=&stream=` (fiche navette), `POST navette/preview` (fichier en `application/octet-stream`, 5 Mo au plus), `POST navette/apply` |
 | Questions | `GET` et `POST /api/bridge/c/:client/questions` (`?deleted=1` pour la corbeille) ; `GET`, `PATCH`, `DELETE questions/:id` (identifiant ou numéro) ; `POST questions/:id/messages`, `assign`, `close`, `reopen`, `restore` ; `GET questions/:id/history` ; `PATCH` et `DELETE messages/:id` |
 | Pièces jointes | `POST /api/bridge/c/:client/files?questionId=&messageId=`, `GET files/:id/link`, `DELETE files/:id`, `GET /api/bridge/dl/:jeton` |
 | Administration | `GET` et `POST /api/bridge/admin/clients`, `PATCH clients/:id`, `POST clients/:id/streams`, `POST clients/:id/streams/reorder`, `PATCH` et `DELETE streams/:id`, `GET` et `POST users`, `PATCH users/:id`, `PUT users/:id/memberships`, `POST users/:id/invite`, `POST users/:id/revoke-devices`, `GET journal` |
 | Développement | `GET /api/bridge/dev/outbox`, `POST /api/bridge/dev/digest` (absentes en production) |
 
-Limites : connexion 8 par tranche de 10 minutes par IP et e-mail et 20 par 30 minutes par e-mail, code 20 par IP, mot de passe oublié 6 par IP et 4 par e-mail, invitation 30 par IP, dépôts 200 par heure et par utilisateur.
+Limites : connexion 8 par tranche de 10 minutes par IP et e-mail et 20 par 30 minutes par e-mail, code 20 par IP, mot de passe oublié 6 par IP et 4 par e-mail, invitation 30 par IP, dépôts 200 par heure et par utilisateur, fiche navette 60 aperçus et 30 imports par heure et par utilisateur.
 
 ### Notifications
 
@@ -190,6 +191,7 @@ Limites : connexion 8 par tranche de 10 minutes par IP et e-mail et 20 par 30 mi
 ### Interface (apps/bridge)
 
 - Pages : `/login` (mot de passe, code de nouvel appareil, mot de passe oublié), `/invitation`, `/` (choix du client, redirection directe s'il n'y en a qu'un), `/c/[slug]` (questions), `/compte`, `/admin` (super-administrateur).
+- Fiche navette : boutons « Fiche navette » (téléchargement de l'export avec les filtres de l'écran) et « Importer » (champ fichier caché) dans `app/c/[slug]/page.tsx` ; `components/questions/NavetteImport.tsx` envoie le fichier à `navette/preview`, affiche l'aperçu ligne par ligne, puis appelle `navette/apply` avec les lignes retenues (l'API les analyse de nouveau avant d'écrire).
 - Repris de WacMan : `RichText.tsx`, `Markdown.tsx`, `Tag.tsx` (avec options désactivées et minimum de valeurs), `ui.tsx` (InlineText, Modal, Toggle, useSubmit, messages), `Menu.tsx`, `lib/markup.ts` (copie identique), charte et thèmes de `globals.css`.
 - `components/ClientContext.tsx` : données du client et actions sur les questions (`useQuestionActions`), qui mettent à jour la liste et le détail sans attendre le rafraîchissement.
 - `components/questions/` : étiquettes (`Tags.tsx`), échanges et zone de réponse (`Thread.tsx` : `MessageItem` avec le menu « ⋯ » Modifier ou Supprimer, `InlineText` passé en saisie par `editRequest` ; brouillons gardés en mémoire par question), pièces jointes (`Attachments.tsx`, envoi XHR avec progression), historique (`History.tsx`), nouvelle question (`NewQuestion.tsx`) ; `components/admin/Rights.tsx` : éditeur des droits par client et par stream.
@@ -199,7 +201,7 @@ Limites : connexion 8 par tranche de 10 minutes par IP et e-mail et 20 par 30 mi
 
 ## Migrations
 
-Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), `0004_actions_decisions` (V1.5 : tables `actions` et `decisions`, blocs ACTIONS et DECISIONS ajoutés aux types existants, décisions reprises des lignes « Décision : … » des sujets, relevé du COPROJ LP du 01/10/2026 et réglages d'e-mail du COPROJ LP pour le compte La Poste, chaque reprise ne s'appliquant qu'une fois), `0005_bridge` (WiBridge : colonnes d'accès de `users`, tables `bridge_*`, client La Poste avec ses 7 streams s'il n'existe aucun client, accès WiBridge du super-administrateur, éditeur des deux chez La Poste), `0006_bridge_notify_default` (préférence d'e-mail NONE par défaut, accès existants passés à NONE), `0007_bridge_message_delete` (colonnes `deleted_at` et `deleted_by_name` des messages), uniquement des ajouts.
+Générées par `npm run db:generate -w @wacman/core` (drizzle-kit) dans `packages/core/drizzle/`, appliquées automatiquement au démarrage de l'API. `0000_init` (V1), `0001_tokens_reset` (V1.1 : table `api_tokens`, colonne `login_challenges.purpose`), `0002_card_start_planning` (V1.2 : colonne `cards.start_date` et ajout des blocs ALERT_CARDS et PLANNING aux types de séance à faits marquants), `0003_card_freshness` (V1.3 : colonne `cards.content_updated_at`, initialisée depuis `updated_at`, puis dates « Mis à jour » Notion pour le compte La Poste, sauf modification WacMan plus récente au journal), `0004_actions_decisions` (V1.5 : tables `actions` et `decisions`, blocs ACTIONS et DECISIONS ajoutés aux types existants, décisions reprises des lignes « Décision : … » des sujets, relevé du COPROJ LP du 01/10/2026 et réglages d'e-mail du COPROJ LP pour le compte La Poste, chaque reprise ne s'appliquant qu'une fois), `0005_bridge` (WiBridge : colonnes d'accès de `users`, tables `bridge_*`, client La Poste avec ses 7 streams s'il n'existe aucun client, accès WiBridge du super-administrateur, éditeur des deux chez La Poste), `0006_bridge_notify_default` (préférence d'e-mail NONE par défaut, accès existants passés à NONE), `0007_bridge_message_delete` (colonnes `deleted_at` et `deleted_by_name` des messages), `0008_bridge_message_source` (colonne `source` des messages), uniquement des ajouts.
 
 ## Pourquoi Drizzle plutôt que Prisma
 

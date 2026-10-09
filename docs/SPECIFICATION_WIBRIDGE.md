@@ -6,7 +6,7 @@ WiBridge est une interface autonome, publiée sur Vercel à l'adresse https://wi
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt. L'architecture commune est décrite dans `ARCHITECTURE.md` (partie WiBridge) et l'hébergement dans `EXPLOITATION.md`.
 
-Version courante : **V1.2** (7 octobre 2026).
+Version courante : **V1.3** (9 octobre 2026).
 
 ---
 
@@ -182,7 +182,7 @@ La personne qui a posé une question peut la supprimer tant qu'elle n'a reçu au
 
 ## 7. Écran des questions
 
-- **En-tête** : picto et nom du client, compteurs cliquables (À traiter par La Poste, À traiter par Wifirst, En retard, Clôturées), boutons « Nouvelle question » et « Excel ». Pour le super-administrateur : Corbeille et « Configurer ce client ».
+- **En-tête** : picto et nom du client, compteurs cliquables (À traiter par La Poste, À traiter par Wifirst, En retard, Clôturées), boutons « Nouvelle question », « Fiche navette » (export Excel) et « Importer » (réimport de la fiche navette, sauf pour un lecteur). Pour le super-administrateur : Corbeille et « Configurer ce client ».
 - **Mode d'emploi** repliable, texte réglable par client.
 - **Recherche** : sujet, texte, échanges, nom de l'auteur et numéro, sans tenir compte des accents.
 - **Filtres** : Ouvertes, Clôturées ou Toutes ; attribution (Tous, Wifirst, La Poste) ; stream ; « Mes questions » (posées par moi). Le statut, l'attribution, le stream et le tri sont mémorisés sur l'appareil ; « Réinitialiser » revient aux questions ouvertes.
@@ -217,11 +217,38 @@ Par défaut, aucun e-mail de notification n'est envoyé : chacun choisit sa pré
 
 Un client archivé ou dont la règle « E-mails de notification » est désactivée n'envoie rien. Les codes de connexion et de mot de passe oublié (ou l'e-mail « pas de compte WiBridge »), les invitations et les e-mails « accès ouvert » partent dans tous les cas.
 
-## 10. Export Excel
+## 10. Fiche navette (export et import Excel)
 
-Bouton « Excel » : fichier `WiBridge_<client>_questions_<date>.xlsx` des questions visibles par la personne, selon le filtre de statut choisi (ouvertes, clôturées ou toutes).
-- Feuille **Questions** : réf., sujet, question, streams, posée par, organisation, posée le, attribuée à, statut, échéance, nombre d'échanges, dernier message (texte, auteur, date), clôturée le.
-- Feuille **Échanges** : un message par ligne (réf., sujet, date, organisation, auteur, issue, message).
+La fiche navette permet de répondre aux questions dans Excel, hors de WiBridge, puis de reverser les réponses.
+
+### 10.1 Export
+Bouton « Fiche navette » : fichier `WiBridge_<client>_fiche_navette_<date>.xlsx`, avec les questions affichées (filtres de statut, d'attribution et de stream de l'écran) et visibles par la personne.
+- **Un seul onglet**, « Fiche navette » : en tête, le client, la date et l'auteur de l'export, et le mode d'emploi ; puis une question par ligne.
+- Colonnes : Réf., Sujet, Question, Streams, Posée par (avec l'organisation), Posée le, Attribuée à, Statut, Échéance (en rouge si dépassée), Échanges (tous les messages, avec la date, l'auteur, l'organisation et l'issue).
+- **Deux colonnes à remplir**, en jaune : « Votre réponse » et « Nouvel attribué » (liste de choix : Wifirst, La Poste ou Clôturer).
+- Deux colonnes cachées, « ID » et « Version », identifient la question et sa dernière activité au moment de l'export.
+- Tableau filtrable, en-tête et deux premières colonnes figés, impression en paysage sur la largeur d'une page.
+
+### 10.2 Import
+Bouton « Importer », puis choix du fichier rempli :
+1. **Aperçu** : pour chaque ligne remplie, l'action prévue (par exemple « Réponse de La Poste, attribuée à Wifirst ») ou la raison pour laquelle elle sera ignorée. Les lignes sans réponse ni nouvel attribué sont passées.
+2. **« Importer N lignes »** : les lignes retenues sont enregistrées, puis un compte rendu ligne par ligne s'affiche.
+
+Règles appliquées à chaque ligne, avec les droits de la personne qui importe, comme depuis l'écran :
+
+| Ligne remplie | Effet |
+|---|---|
+| Réponse, sans nouvel attribué | Réponse ; la question passe à l'autre organisation si l'attribué répond, sinon l'attribution est conservée |
+| Réponse et nouvel attribué | Réponse avec cette issue (attribuer à l'autre organisation, conserver l'attribution, ou clôturer) |
+| Nouvel attribué seul | Changement d'attribution, ou clôture, sans réponse |
+| Question clôturée, avec un nouvel attribué | Réouverture, attribuée à cette organisation, avec la réponse comme motif |
+
+- La réponse est enregistrée au nom de l'organisation attributaire quand la personne qui importe peut répondre en son nom (membre du client pour une question attribuée au client, éditeur des deux, super-administrateur). Sinon, Wifirst l'enregistre en son nom, comme lorsqu'il complète une question à la place du client.
+- Chaque réponse importée porte la mention « fiche navette » dans les échanges, et l'historique l'indique.
+- Lignes ignorées, avec leur raison : question introuvable ou supprimée, réponse que la personne n'a pas le droit de faire, nouvel attribué non reconnu, question clôturée sans nouvel attribué, question en double dans le fichier, réponse déjà présente dans les échanges (un même fichier importé deux fois n'ajoute rien).
+- Avertissement, sans blocage : la question a changé depuis l'export (nouvelle réponse ou modification).
+- Le texte de la colonne « Nouvel attribué » est reconnu sans tenir compte des majuscules ni des accents ; le sigle du client est accepté. Une ligne se retrouve par son identifiant caché, à défaut par son numéro.
+- Limites : fichier Excel (.xlsx) de 5 Mo et 1 000 lignes au plus, 500 lignes appliquées par import.
 
 ## 11. Administration (super-administrateur)
 
@@ -265,3 +292,4 @@ Menu utilisateur, « Administration » :
 | 07/10/2026 | Un clic n'importe où sur une ligne de question doit déplier la question | V1.1 : clic sur la ligne ou la carte pour déplier ; sur le sujet et le texte, le premier clic ne fait que déplier, l'édition se fait ensuite ; sur une étiquette, le choix s'ouvre aussi (7) |
 | 07/10/2026 | Permettre à un utilisateur de modifier ou de supprimer ses réponses | V1.1 : menu « ⋯ » d'une réponse (Modifier, Supprimer avec confirmation) ; l'auteur modifie ou supprime ses réponses à tout moment ; une réponse supprimée laisse une mention avec son issue, sans changer l'attribution ni le statut ; trace à l'historique (migration `0007_bridge_message_delete`) (5.2, 6.6, 6.7) |
 | 07/10/2026 | La fonction mot de passe oublié n'envoie pas d'e-mail de réinitialisation | Constat dans les journaux : les deux demandes de 18 h n'ont déclenché aucun envoi, ce qui arrive quand l'adresse saisie n'a pas de compte WiBridge actif (vraisemblablement une personne invitée quelques minutes plus tard) ; rien ne le signalait. V1.2 : une adresse sans compte WiBridge actif reçoit un e-mail qui l'explique et indique comment demander un accès ; message de l'écran précisé (4.2, 9) |
+| 09/10/2026 | Faire évoluer l'export Excel en fiche navette : un seul onglet listant les questions avec un espace pour que l'attribué réponde sur chaque question (réponse et nouvel attribué), puis réimport du fichier pour que les réponses soient prises en compte | V1.3 : export « Fiche navette » (un onglet, colonnes « Votre réponse » et « Nouvel attribué » avec liste de choix, échanges en clair, identifiants cachés, filtres de l'écran) ; bouton « Importer » avec aperçu ligne par ligne, puis application avec les droits de l'écran ; réouverture d'une question clôturée, clôture et changement d'attribution sans réponse ; mention « fiche navette » sur les réponses importées et dans l'historique ; second import du même fichier sans effet (migration `0008_bridge_message_source`) (7, 10) |

@@ -288,6 +288,7 @@ export async function getQuestion(ctx: BridgeCtx, idOrRef: string, tx: Tx = db) 
       editedAt: m.editedAt,
       deletedAt: m.deletedAt,
       deletedByName: m.deletedByName,
+      source: m.source,
       createdAt: m.createdAt,
       perms: (() => {
         const ok = !l.q.deletedAt && canEditMessage(ctx, role, m);
@@ -340,6 +341,12 @@ export async function searchQuestions(ctx: BridgeCtx, q: string) {
 const label = (ctx: BridgeCtx, p: Party | null | undefined) => partyLabel(ctx.client, p);
 const streamNames = (ctx: BridgeCtx, ids: string[]) => sortStreams(ctx, ids).map((id) => ctx.streams.find((s) => s.id === id)?.name ?? "stream supprimé");
 const actorOf = (ctx: BridgeCtx, party: Party): NoticeActor => ({ id: ctx.user.id, name: ctx.user.name, party });
+/** Options internes d'écriture : origine de l'action (réponses importées depuis la fiche navette Excel). */
+export interface WriteOpts {
+  source?: "navette";
+}
+const via = (o: WriteOpts) => (o.source === "navette" ? " (fiche navette)" : "");
+
 /** Texte enregistré dans le journal : au-delà de 4 000 caractères, la fin est coupée. */
 const keep = (s: string | null) => (s && s.length > 4000 ? `${s.slice(0, 4000)}…` : s);
 
@@ -486,7 +493,7 @@ export async function updateQuestion(ctx: BridgeCtx, idOrRef: string, input: unk
   return getQuestion(ctx, id);
 }
 
-export async function assignQuestion(ctx: BridgeCtx, idOrRef: string, input: unknown) {
+export async function assignQuestion(ctx: BridgeCtx, idOrRef: string, input: unknown, opts: WriteOpts = {}) {
   const { party } = parse(z.object({ party: zParty }), input, "Organisation attendue.");
   let notice = false;
   const id = await db.transaction(async (tx) => {
@@ -496,7 +503,7 @@ export async function assignQuestion(ctx: BridgeCtx, idOrRef: string, input: unk
     if (!perms.reassign) throw forbidden("Vous ne pouvez pas changer l'attribution de cette question.");
     if (party === q.assignedParty) return q.id;
     await tx.update(T.bridgeQuestions).set({ assignedParty: party, status: "OPEN", lastActivityAt: new Date() }).where(eq(T.bridgeQuestions.id, q.id));
-    await bridgeEvent(ctx, q.id, "assign", `Attribuée à ${label(ctx, party)} (au lieu de ${label(ctx, q.assignedParty)})`, { assignedParty: [q.assignedParty, party] }, null, tx);
+    await bridgeEvent(ctx, q.id, "assign", `Attribuée à ${label(ctx, party)} (au lieu de ${label(ctx, q.assignedParty)})${via(opts)}`, { assignedParty: [q.assignedParty, party] }, null, tx);
     notice = true;
     return q.id;
   });
@@ -504,7 +511,7 @@ export async function assignQuestion(ctx: BridgeCtx, idOrRef: string, input: unk
   return getQuestion(ctx, id);
 }
 
-export async function closeQuestion(ctx: BridgeCtx, idOrRef: string) {
+export async function closeQuestion(ctx: BridgeCtx, idOrRef: string, opts: WriteOpts = {}) {
   let notice = false;
   const id = await db.transaction(async (tx) => {
     const l = await loadQuestion(ctx, idOrRef, tx, { forUpdate: true });
@@ -517,7 +524,7 @@ export async function closeQuestion(ctx: BridgeCtx, idOrRef: string) {
       .update(T.bridgeQuestions)
       .set({ status: "CLOSED", closedAt: now, closedById: ctx.user.id, closedByName: ctx.user.name, lastActivityAt: now })
       .where(eq(T.bridgeQuestions.id, q.id));
-    await bridgeEvent(ctx, q.id, "close", `Question clôturée par ${ctx.user.name}`, { status: [q.status, "CLOSED"] }, null, tx);
+    await bridgeEvent(ctx, q.id, "close", `Question clôturée par ${ctx.user.name}${via(opts)}`, { status: [q.status, "CLOSED"] }, null, tx);
     notice = true;
     return q.id;
   });
@@ -534,7 +541,7 @@ const reopenSchema = z.object({
   fileIds: z.array(z.string()).max(20).optional(),
 });
 
-export async function reopenQuestion(ctx: BridgeCtx, idOrRef: string, input: unknown) {
+export async function reopenQuestion(ctx: BridgeCtx, idOrRef: string, input: unknown, opts: WriteOpts = {}) {
   const d = parse(reopenSchema, input ?? {});
   let target: Party = "PROVIDER";
   let acting: Party = "PROVIDER";
@@ -556,7 +563,7 @@ export async function reopenQuestion(ctx: BridgeCtx, idOrRef: string, input: unk
     if (d.body.trim() || d.fileIds?.length) {
       const [m] = await tx
         .insert(T.bridgeMessages)
-        .values({ clientId: ctx.client.id, questionId: q.id, authorId: ctx.user.id, authorName: ctx.user.name, party: acting, body: d.body, outcome: "REOPEN", assignedBefore: null, assignedAfter: target })
+        .values({ clientId: ctx.client.id, questionId: q.id, authorId: ctx.user.id, authorName: ctx.user.name, party: acting, body: d.body, outcome: "REOPEN", assignedBefore: null, assignedAfter: target, source: opts.source ?? "" })
         .returning();
       files = await attachPending(ctx, tx, d.fileIds, q.id, m.id);
     }
@@ -564,7 +571,7 @@ export async function reopenQuestion(ctx: BridgeCtx, idOrRef: string, input: unk
       ctx,
       q.id,
       "reopen",
-      `Question rouverte par ${ctx.user.name} (${label(ctx, acting)}), attribuée à ${label(ctx, target)}`,
+      `Question rouverte par ${ctx.user.name} (${label(ctx, acting)}), attribuée à ${label(ctx, target)}${via(opts)}`,
       { status: ["CLOSED", "OPEN"], assignedParty: [q.assignedParty, target], ...(d.body.trim() ? { message: keep(d.body) } : {}), ...(files.length ? { files: files.map((f) => f.name) } : {}) },
       acting,
       tx,
@@ -584,7 +591,7 @@ const respondSchema = z.object({
   fileIds: z.array(z.string()).max(20).optional(),
 });
 
-export async function respondQuestion(ctx: BridgeCtx, idOrRef: string, input: unknown) {
+export async function respondQuestion(ctx: BridgeCtx, idOrRef: string, input: unknown, opts: WriteOpts = {}) {
   const d = parse(respondSchema, input);
   let party: Party = "PROVIDER";
   let notice: Parameters<typeof emitBridgeNotice>[0] | null = null;
@@ -603,13 +610,13 @@ export async function respondQuestion(ctx: BridgeCtx, idOrRef: string, input: un
     const after: Party | null = closing ? null : (d.outcome as Party);
     const [m] = await tx
       .insert(T.bridgeMessages)
-      .values({ clientId: ctx.client.id, questionId: q.id, authorId: ctx.user.id, authorName: ctx.user.name, party, body: d.body, outcome: closing ? "CLOSE" : "ASSIGN", assignedBefore: before, assignedAfter: after })
+      .values({ clientId: ctx.client.id, questionId: q.id, authorId: ctx.user.id, authorName: ctx.user.name, party, body: d.body, outcome: closing ? "CLOSE" : "ASSIGN", assignedBefore: before, assignedAfter: after, source: opts.source ?? "" })
       .returning();
     const files = await attachPending(ctx, tx, d.fileIds, q.id, m.id);
     let summary: string;
     if (closing) {
       await tx.update(T.bridgeQuestions).set({ status: "CLOSED", closedAt: now, closedById: ctx.user.id, closedByName: ctx.user.name, lastActivityAt: now }).where(eq(T.bridgeQuestions.id, q.id));
-      summary = `Réponse de ${label(ctx, party)} (${ctx.user.name}), question clôturée`;
+      summary = `Réponse de ${label(ctx, party)} (${ctx.user.name}), question clôturée${via(opts)}`;
       notice = { kind: "closed", clientId: ctx.client.id, questionId: q.id, actor: actorOf(ctx, party), message: d.body };
     } else {
       // changement d'attribution : à traiter par l'autre ; réponse partielle de l'attributaire : en cours ; relance : statut inchangé
@@ -617,8 +624,8 @@ export async function respondQuestion(ctx: BridgeCtx, idOrRef: string, input: un
       await tx.update(T.bridgeQuestions).set({ assignedParty: after!, status, lastActivityAt: now }).where(eq(T.bridgeQuestions.id, q.id));
       summary =
         after !== before
-          ? `Réponse de ${label(ctx, party)} (${ctx.user.name}), attribuée à ${label(ctx, after)}`
-          : `Réponse de ${label(ctx, party)} (${ctx.user.name}), attribution conservée (${label(ctx, after)})`;
+          ? `Réponse de ${label(ctx, party)} (${ctx.user.name}), attribuée à ${label(ctx, after)}${via(opts)}`
+          : `Réponse de ${label(ctx, party)} (${ctx.user.name}), attribution conservée (${label(ctx, after)})${via(opts)}`;
       notice =
         after !== party
           ? { kind: "assigned", reason: "answer", clientId: ctx.client.id, questionId: q.id, party: after!, actor: actorOf(ctx, party), message: d.body }

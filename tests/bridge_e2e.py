@@ -289,10 +289,10 @@ with sync_playwright() as p:
             pg.click(f"[data-thread='{atm['ref']}'] button[title='Ouvrir atm_{RUN}.xlsx']")
     check("pièce jointe téléchargée", dl.value.suggested_filename == f"atm_{RUN}.xlsx", dl.value.suggested_filename)
 
-    # export Excel
+    # export Excel : fiche navette
     with pg.expect_download() as dl:
         pg.click("button[title^='Exporter']")
-    check("export Excel", dl.value.suggested_filename.startswith(f"WiBridge_{SLUG}_questions_") and dl.value.suggested_filename.endswith(".xlsx"), dl.value.suggested_filename)
+    check("export de la fiche navette", dl.value.suggested_filename.startswith(f"WiBridge_{SLUG}_fiche_navette_") and dl.value.suggested_filename.endswith(".xlsx"), dl.value.suggested_filename)
 
     # -----------------------------------------------------------------------
     # La Poste : répond, conserve, clôture, rouvre
@@ -367,6 +367,32 @@ with sync_playwright() as p:
     pl.click("button:has-text('Poser la question à Wifirst')")
     pl.wait_for_selector("text=Question n°")
     check("question du client créée", any(x["subject"] == "Dates des tests d'intrusion" and x["assignedParty"] == "PROVIDER" for x in lp_api.req("GET", f"{BASE}/questions")[1]))
+
+    # fiche navette : La Poste l'exporte, répond dans Excel, puis la réimporte (aperçu, puis import)
+    import openpyxl
+
+    q_nav = q(wf_api, "Plan de câblage des bureaux pilotes", "Merci de transmettre le plan de câblage.", ["Déploiement"], assignedParty="CLIENT")
+    with pl.expect_download() as dl:
+        pl.click("button[title^='Exporter']")
+    exported = os.path.join(OUT, f"navette_export_{RUN}.xlsx")
+    dl.value.save_as(exported)
+    book = openpyxl.load_workbook(exported)
+    sh = book["Fiche navette"]
+    h = {c.value: c.column for c in sh[5] if c.value}
+    for row in sh.iter_rows(min_row=6):
+        if row[h["Réf."] - 1].value == q_nav["ref"]:
+            sh.cell(row[0].row, h["Votre réponse"]).value = "Plan transmis par e-mail le 09/10."
+    filled = os.path.join(OUT, f"navette_{RUN}.xlsx")
+    book.save(filled)
+    pl.set_input_files("input[aria-label='Fiche navette à importer']", filled)
+    pl.wait_for_selector("[data-navette-preview]")
+    check("fiche navette : aperçu de l'import", "Réponse de La Poste, attribuée à Wifirst" in pl.inner_text("[data-navette-preview]"), pl.inner_text("[data-navette-preview]")[:300])
+    pl.screenshot(path=f"{OUT}/bridge_navette_preview.png")
+    pl.click("[role=dialog] button:has-text('Importer 1 ligne')")
+    pl.wait_for_selector("[data-navette-result]")
+    d = lp_api.req("GET", f"{BASE}/questions/{q_nav['id']}")[1]
+    check("fiche navette : réponse importée", d["assignedParty"] == "PROVIDER" and d["messages"] and d["messages"][-1]["source"] == "navette", str(d)[:300])
+    pl.click("[role=dialog] button:has-text('Fermer')")
 
     # Wifirst clôt la question des ATM avec une réponse
     pg.goto(f"{WEB}/c/{SLUG}?q={atm['ref']}")

@@ -57,6 +57,13 @@
       "when": 1791362514360,
       "tag": "0007_bridge_message_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791539452628,
+      "tag": "0008_bridge_message_source",
+      "breakpoints": true
     }
   ]
 }

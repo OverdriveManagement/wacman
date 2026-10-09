@@ -18,7 +18,7 @@ import {
   signBridgeUpload,
 } from "./session.js";
 import { accessMail, deliver, devOutbox, digestMail, invitationMail, loginCodeMail, noAccessMail, resetCodeMail } from "./mail.js";
-import { buildBridgeWorkbook } from "./xlsx.js";
+import { buildNavetteWorkbook, readNavette } from "./xlsx.js";
 
 /** Routes de WiBridge : toutes sous /api/bridge, avec leur propre session (voir session.ts). */
 
@@ -233,11 +233,28 @@ export async function registerBridgeRoutes(app: FastifyInstance) {
   });
   app.delete("/api/bridge/c/:slug/files/:id", async (req) => Bridge.deleteBridgeFile(await ctxOf(req), (req.params as P).id));
 
+  // Fiche navette : export Excel des questions affichées (filtres de l'écran), puis réimport des réponses (aperçu, puis application)
   app.get("/api/bridge/c/:slug/export.xlsx", async (req, reply) => {
     const ctx = await ctxOf(req);
-    const s = (req.query as { status?: string }).status;
-    const { buffer, filename } = await buildBridgeWorkbook(ctx, s === "closed" || s === "all" ? s : "open");
+    const qs = req.query as { status?: string; assigned?: string; stream?: string };
+    const { buffer, filename } = await buildNavetteWorkbook(ctx, {
+      status: qs.status === "closed" || qs.status === "all" ? qs.status : "open",
+      assigned: qs.assigned === "PROVIDER" || qs.assigned === "CLIENT" ? qs.assigned : "all",
+      stream: qs.stream && ctx.streams.some((st) => st.id === qs.stream) ? qs.stream : null,
+    });
     return sendFile(reply, buffer, filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  });
+  app.post("/api/bridge/c/:slug/navette/preview", async (req) => {
+    const ctx = await ctxOf(req);
+    throttle(`bridge-navette:${ctx.user.id}`, 60, 60 * 60_000);
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw badRequest("Fichier attendu.");
+    if (req.body.length > 5 * 1024 * 1024) throw badRequest("Fichier trop volumineux : 5 Mo au plus.");
+    return Bridge.planNavette(ctx, await readNavette(req.body, ctx));
+  });
+  app.post("/api/bridge/c/:slug/navette/apply", async (req) => {
+    const ctx = await ctxOf(req);
+    throttle(`bridge-navette-apply:${ctx.user.id}`, 30, 60 * 60_000);
+    return Bridge.applyNavette(ctx, req.body);
   });
 
   // -------------------------------------------------------------------------

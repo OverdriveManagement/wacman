@@ -109,6 +109,8 @@ export interface Message {
   /** message supprimé : texte retiré, issue conservée */
   deletedAt: string | null;
   deletedByName: string;
+  /** "navette" : réponse importée depuis la fiche navette Excel */
+  source: string;
   createdAt: string;
   perms: { edit: boolean; delete: boolean };
 }

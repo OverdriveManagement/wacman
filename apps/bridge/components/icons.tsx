@@ -32,6 +32,7 @@ export const IconUp = (p: P) => base("M6 15l6-6 6 6", p);
 export const IconDown = (p: P) => base("M6 9l6 6 6-6", p);
 export const IconTrash = (p: P) => base(["M4 7h16", "M10 11v6", "M14 11v6", "M6 7l1 13h10l1-13", "M9 7V4h6v3"], p);
 export const IconDownload = (p: P) => base(["M12 4v12", "M7 11l5 5 5-5", "M4 20h16"], p);
+export const IconUpload = (p: P) => base(["M12 16V4", "M7 9l5-5 5 5", "M4 20h16"], p);
 export const IconSparkles = (p: P) => base(["M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z", "M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z", "M5 16l.6 1.4L7 18l-1.4.6L5 20l-.6-1.4L3 18l1.4-.6z"], p);
 export const IconComment = (p: P) => base("M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z", p);
 export const IconCopy = (p: P) => base(["M9 9h11v11H9z", "M5 15H4V4h11v1"], p);

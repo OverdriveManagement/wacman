@@ -154,6 +154,11 @@ function MessageItem({ d, m }: { d: QuestionDetail; m: Message }) {
             <PartyTag party={m.party} />
             <span title={dateTime(m.createdAt)}>{dateTime(m.createdAt)}</span>
             <OutcomeBadge m={m} />
+            {m.source === "navette" && (
+              <span className="rounded-full border border-line px-2 py-0.5 text-[0.65rem] font-semibold text-ink-2" title={`Importée depuis la fiche navette Excel par ${m.authorName}`}>
+                fiche navette
+              </span>
+            )}
             {m.editedAt && <span title={`Modifié le ${dateTime(m.editedAt)}`}>(modifié)</span>}
             {items.length > 0 && (
               <span className="ml-auto">
