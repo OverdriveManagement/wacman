@@ -9,10 +9,18 @@ import { Modal, Spinner, useSubmit } from "../ui";
 
 /**
  * Réimport de la fiche navette : le fichier est analysé par l'API (aperçu ligne par ligne : action prévue ou raison
- * du refus), puis les lignes retenues sont appliquées avec les droits de la personne connectée.
+ * du refus), puis les lignes retenues sont appliquées avec les droits de la personne connectée : réponses et
+ * changements de statut, et nouvelles questions saisies en bas de la fiche.
  */
 
 type Target = Party | "CLOSE" | null;
+interface NewQuestion {
+  text: string;
+  streams: string;
+  due: string;
+  assigned: string;
+  askedBy: string;
+}
 interface PlanItem {
   line: number;
   questionId: string | null;
@@ -21,7 +29,8 @@ interface PlanItem {
   body: string;
   target: Target;
   version: string | null;
-  action: "answer" | "assign" | "close" | "reopen" | null;
+  action: "answer" | "assign" | "close" | "reopen" | "create" | null;
+  newQuestion: NewQuestion | null;
   summary: string;
   warning: string | null;
   error: string | null;
@@ -65,11 +74,16 @@ export function NavetteImport({ file, onClose }: { file: File | null; onClose: (
     };
   }, [file, cl.base]);
 
-  const ready = preview?.items.filter((i) => !i.error && i.questionId) ?? [];
+  const ready = preview?.items.filter((i) => !i.error && (i.questionId || i.newQuestion)) ?? [];
+  const created = ready.filter((i) => i.newQuestion).length;
   const [apply, applying] = useSubmit(async () => {
     const r = await api<ApplyResult>(`${cl.base}/navette/apply`, {
       method: "POST",
-      json: { items: ready.map((i) => ({ line: i.line, questionId: i.questionId, body: i.body, target: i.target, version: i.version })) },
+      json: {
+        items: ready.map((i) =>
+          i.newQuestion ? { line: i.line, newQuestion: i.newQuestion } : { line: i.line, questionId: i.questionId, body: i.body, target: i.target, version: i.version },
+        ),
+      },
     });
     setResult(r);
     await mutate((key) => typeof key === "string" && key.startsWith(`${cl.base}/questions`));
@@ -101,20 +115,22 @@ export function NavetteImport({ file, onClose }: { file: File | null; onClose: (
         <div className="space-y-3" data-navette-result>
           <p className="text-sm text-ink-2">
             {result.done} ligne{result.done > 1 ? "s" : ""} importée{result.done > 1 ? "s" : ""}
-            {result.failed ? `, ${result.failed} refusée${result.failed > 1 ? "s" : ""}` : ""}. Les réponses figurent dans les échanges avec la mention « fiche navette ».
+            {result.failed ? `, ${result.failed} refusée${result.failed > 1 ? "s" : ""}` : ""}. Les réponses figurent dans les échanges avec la mention « fiche navette »
+            {created ? ", les nouvelles questions sont créées avec leur numéro" : ""}.
           </p>
           <Lines items={result.results.map((r) => ({ key: r.line, ref: r.ref, subject: r.subject, text: r.ok ? r.summary : r.error ?? "", ok: r.ok, warning: null }))} />
         </div>
       ) : (
         <div className="space-y-3" data-navette-preview>
           <p className="text-sm text-ink-2">
-            {file?.name} : {preview.rows} question{preview.rows > 1 ? "s" : ""} dans le fichier, {preview.items.length} ligne{preview.items.length > 1 ? "s" : ""} remplie{preview.items.length > 1 ? "s" : ""}
-            {preview.items.length ? `, dont ${preview.ready} à importer` : ""}. Les réponses sont enregistrées à votre nom, avec vos droits, comme depuis l'écran.
+            {file?.name} : {preview.items.length} ligne{preview.items.length > 1 ? "s" : ""} remplie{preview.items.length > 1 ? "s" : ""}
+            {preview.items.length ? `, dont ${preview.ready} à importer` : ""}
+            {created ? ` (${created} nouvelle${created > 1 ? "s" : ""} question${created > 1 ? "s" : ""})` : ""}. Les réponses et les questions sont enregistrées avec vos droits, comme depuis l'écran.
           </p>
           {preview.items.length ? (
-            <Lines items={preview.items.map((i) => ({ key: i.line, ref: i.ref, subject: i.subject, text: i.error ?? i.summary, ok: !i.error, warning: i.warning, body: i.body }))} />
+            <Lines items={preview.items.map((i) => ({ key: i.line, ref: i.ref, subject: i.newQuestion ? `Nouvelle question : ${i.subject}` : i.subject, text: i.error ?? i.summary, ok: !i.error, warning: i.warning, body: i.body }))} />
           ) : (
-            <p className="text-sm text-muted">Aucune réponse ni nouveau statut dans le fichier : remplissez les colonnes jaunes puis importez-le de nouveau.</p>
+            <p className="text-sm text-muted">Aucune réponse, aucun nouveau statut ni nouvelle question dans le fichier : remplissez les cellules jaunes puis importez-le de nouveau.</p>
           )}
         </div>
       )}

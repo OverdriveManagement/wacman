@@ -345,6 +345,10 @@ const actorOf = (ctx: BridgeCtx, party: Party): NoticeActor => ({ id: ctx.user.i
 export interface WriteOpts {
   source?: "navette";
 }
+/** Création depuis la fiche navette : nom saisi dans la colonne « Posée par » (la question reste rattachée au compte qui importe). */
+export interface CreateOpts extends WriteOpts {
+  askedByName?: string;
+}
 const via = (o: WriteOpts) => (o.source === "navette" ? " (fiche navette)" : "");
 
 /** Texte enregistré dans le journal : au-delà de 4 000 caractères, la fin est coupée. */
@@ -381,8 +385,9 @@ const createSchema = z.object({
   fileIds: z.array(z.string()).max(20).optional(),
 });
 
-export async function createQuestion(ctx: BridgeCtx, input: unknown) {
+export async function createQuestion(ctx: BridgeCtx, input: unknown, opts: CreateOpts = {}) {
   const d = parse(createSchema, input);
+  const askedByName = opts.askedByName?.replace(/\s+/g, " ").trim().slice(0, 120) || ctx.user.name;
   const streamIds = [...new Set(d.streamIds)];
   for (const s of streamIds) {
     const st = ctx.streams.find((x) => x.id === s);
@@ -411,7 +416,7 @@ export async function createQuestion(ctx: BridgeCtx, input: unknown) {
         subject: d.subject,
         body: d.body,
         askedById: ctx.user.id,
-        askedByName: ctx.user.name,
+        askedByName,
         askedByParty: party,
         assignedParty: assigned,
         status: "OPEN",
@@ -424,7 +429,7 @@ export async function createQuestion(ctx: BridgeCtx, input: unknown) {
       ctx,
       q.id,
       "create",
-      `Question posée par ${ctx.user.name} (${label(ctx, party)}), attribuée à ${label(ctx, assigned)}`,
+      `Question posée par ${askedByName} (${label(ctx, party)})${askedByName !== ctx.user.name ? `, saisie par ${ctx.user.name}` : ""}, attribuée à ${label(ctx, assigned)}${via(opts)}`,
       { subject: d.subject, body: keep(d.body), streams: streamNames(ctx, streamIds), assignedParty: assigned, dueDate: d.dueDate ?? null, files: files.map((f) => f.name) },
       party,
       tx,

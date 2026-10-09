@@ -403,16 +403,25 @@ with sync_playwright() as p:
     for row in sh.iter_rows(min_row=7):
         if row[h["N°"] - 1].value == q_nav["ref"]:
             sh.cell(row[0].row, h["Votre réponse"]).value = "Plan transmis par e-mail le 09/10."
+    # et pose une nouvelle question en bas de la fiche
+    band = next(r[0].row for r in sh.iter_rows(min_row=7) if str(r[0].value or "").startswith("➕ Nouvelles questions"))
+    new_subject = f"Calendrier des visites techniques {RUN}"
+    for k, v in {"Stream": "Déploiement", "Échéance": "30/11/2026", "Question": f"{new_subject}\nMerci de partager le calendrier.", "Posée par": "Paul Martin"}.items():
+        sh.cell(band + 1, h[k]).value = v
     filled = os.path.join(OUT, f"navette_{RUN}.xlsx")
     book.save(filled)
     pl.set_input_files("input[aria-label='Fiche navette à importer']", filled)
     pl.wait_for_selector("[data-navette-preview]")
-    check("fiche navette : aperçu de l'import", "Réponse de La Poste, attribuée à Wifirst" in pl.inner_text("[data-navette-preview]"), pl.inner_text("[data-navette-preview]")[:300])
+    prev_text = pl.inner_text("[data-navette-preview]")
+    check("fiche navette : aperçu de l'import", "Réponse de La Poste, attribuée à Wifirst" in prev_text, prev_text[:300])
+    check("fiche navette : nouvelle question dans l'aperçu", f"Nouvelle question : {new_subject}" in prev_text and "Nouvelle question de La Poste (Paul Martin), à traiter par Wifirst" in prev_text, prev_text[:400])
     pl.screenshot(path=f"{OUT}/bridge_navette_preview.png")
-    pl.click("[role=dialog] button:has-text('Importer 1 ligne')")
+    pl.click("[role=dialog] button:has-text('Importer 2 lignes')")
     pl.wait_for_selector("[data-navette-result]")
     d = lp_api.req("GET", f"{BASE}/questions/{q_nav['id']}")[1]
     check("fiche navette : réponse importée", d["assignedParty"] == "PROVIDER" and d["messages"] and d["messages"][-1]["source"] == "navette", str(d)[:300])
+    res_text = pl.inner_text("[data-navette-result]")
+    check("fiche navette : nouvelle question créée avec son numéro", "nouvelles questions sont créées" in res_text and re.search(r"n°\d+ " + re.escape(new_subject), res_text) is not None, res_text[:400])
     pl.click("[role=dialog] button:has-text('Fermer')")
 
     # Wifirst clôt la question des ATM avec une réponse

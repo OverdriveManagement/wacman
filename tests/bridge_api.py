@@ -529,7 +529,7 @@ try:
     texts = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
     check("fiche navette : titre « Fiche navette Wifirst - La Poste », sans WiBridge ni mention d'export", ws.cell(1, 1).value == "Fiche navette Wifirst - La Poste" and "WiBridge" not in texts and "export" not in texts.lower() and "WiBridge" not in (ws.oddFooter.left.text or ""), str(ws.cell(2, 1).value))
     dv = [d for d in ws.data_validations.dataValidation if d.type == "list"]
-    check("fiche navette : colonne « Nouveau statut » avec la liste À traiter par Wifirst, À traiter par La Poste, Clôturer", len(dv) == 1 and dv[0].formula1 == '"À traiter par Wifirst,À traiter par La Poste,Clôturer"' and "« Nouveau statut »" in intro, repr(dv and dv[0].formula1))
+    check("fiche navette : colonne « Nouveau statut » avec la liste À traiter par Wifirst, À traiter par La Poste, Clôturer", '"À traiter par Wifirst,À traiter par La Poste,Clôturer"' in [d.formula1 for d in dv] and "« Nouveau statut »" in intro, repr([d.formula1 for d in dv]))
     check("fiche navette : mode d'emploi sans renvoi vers WiBridge", "renvoyez le fichier à votre contact" in intro and "Importer" not in intro, intro[-300:])
     st, x2 = sec.req("GET", f"{base}/export.xlsx?status=all")
     w2 = openpyxl.load_workbook(io.BytesIO(x2))["Fiche navette"]
@@ -562,7 +562,8 @@ try:
         return session.req("POST", f"{base}/navette/preview", raw=data, headers={"Content-Type": "application/octet-stream"})
 
     def apply(session, items):
-        return session.req("POST", f"{base}/navette/apply", {"items": [{k: i[k] for k in ("line", "questionId", "body", "target", "version")} for i in items if not i["error"]]})
+        keys = lambda i: ("line", "newQuestion") if i.get("newQuestion") else ("line", "questionId", "body", "target", "version")
+        return session.req("POST", f"{base}/navette/apply", {"items": [{k: i[k] for k in keys(i)} for i in items if not i["error"]]})
 
     _, na = create(wf, f"Navette A {RUN}", ["Déploiement"], assignedParty="CLIENT")
     _, nb = create(wf, f"Navette B {RUN}", ["Déploiement"], assignedParty="CLIENT")
@@ -614,6 +615,65 @@ try:
     i4 = p4["items"][0] if st == 200 and p4["items"] else {}
     check("navette, Wifirst : réponse de Wifirst à la place du client, attribution conservée", i4.get("party") == "PROVIDER" and i4.get("outcome") == "CLIENT", str(i4)[:300])
     check("navette : avertissement si la question a changé depuis l'export", "changé depuis l'export" in (i4.get("warning") or ""), str(i4)[:300])
+    # nouvelles questions saisies en bas de la fiche
+    import datetime
+
+    def with_new(session, query, news):
+        """Exporte la fiche, remplit les lignes « Nouvelles questions » ({titre de colonne: valeur}) et renvoie le fichier et la feuille d'origine."""
+        st, data = session.req("GET", f"{base}/export.xlsx?{query}")
+        book = openpyxl.load_workbook(io.BytesIO(data))
+        sh = book["Fiche navette"]
+        h = {c.value: c.column for c in sh[6] if c.value}
+        band = next(r[0].row for r in sh.iter_rows(min_row=7) if str(r[0].value or "").startswith("➕ Nouvelles questions"))
+        for i, nq in enumerate(news):
+            for k, v in nq.items():
+                sh.cell(band + 1 + i, h[k]).value = v
+        out = io.BytesIO()
+        book.save(out)
+        return out.getvalue(), openpyxl.load_workbook(io.BytesIO(data))["Fiche navette"], band, h
+
+    long_q = f"Navette longue {RUN} " + "avec un texte saisi sur une seule ligne, sans retour à la ligne, assez long pour dépasser la taille d'un sujet de question " * 2
+    news = [
+        {"Stream": "Déploiement", "Échéance": datetime.datetime(2026, 11, 20), "À traiter par": "Wifirst", "Question": f"Nouvelle navette {RUN}\nDétail de la question.\n\n", "Posée par": "Marie Durand"},
+        {"Stream": "Inconnu", "Question": f"Stream faux {RUN}"},
+        {"Stream": "Déploiement", "À traiter par": "La Poste", "Question": f"Pour La Poste {RUN}"},
+        {"Question": f"Sans stream {RUN}"},
+        {"Stream": "Déploiement", "Échéance": "32/13/2026", "Question": f"Date fausse {RUN}"},
+        {"Stream": "Déploiement", "À traiter par": "Wifirst", "Question": f"Nouvelle navette {RUN}\nDétail de la question."},
+        {"Stream": "déploiement", "Échéance": "15/12/2026", "Question": long_q},
+    ]
+    data, sh0, band, h0 = with_new(lp, "status=open", news)
+    fresh = [sh0.cell(band + 1 + i, h0["Question"]) for i in range(20)]
+    check("fiche navette : partie « Nouvelles questions » avec 20 lignes à remplir", all(c.protection.locked is False for c in fresh) and sh0.cell(band + 1, h0["Votre réponse"]).protection.locked is not False and sh0.cell(band + 21, h0["Question"]).value is None)
+    dvs = {d.formula1 for d in sh0.data_validations.dataValidation if d.type == "list"}
+    check("fiche navette : listes de choix du stream et de l'organisation qui doit répondre", any("Déploiement" in (f or "") for f in dvs) and '"Wifirst,La Poste"' in dvs, str(dvs)[:300])
+    st, p5 = preview(lp, data)
+    it5 = sorted(p5.get("items", []), key=lambda i: i["line"]) if st == 200 else []
+    check("nouvelles questions : 7 lignes analysées, 2 à créer", len(it5) == 7 and p5["ready"] == 2, str(p5)[:400])
+    if len(it5) == 7:
+        a, b_, c_, d_, e_, f_, g_ = it5
+        check("nouvelle question : posée par La Poste, à traiter par Wifirst, nom et échéance repris", a["action"] == "create" and a["party"] == "CLIENT" and a["outcome"] == "PROVIDER" and a["subject"] == f"Nouvelle navette {RUN}" and a["body"] == "Détail de la question." and "(Marie Durand)" in a["summary"] and "20/11/2026" in a["summary"], str(a)[:300])
+        check("nouvelle question : stream inconnu refusé", "Stream inconnu" in (b_["error"] or ""), str(b_)[:200])
+        check("nouvelle question : question de La Poste à traiter par La Poste refusée", "choisissez « Wifirst »" in (c_["error"] or ""), str(c_)[:200])
+        check("nouvelle question : stream obligatoire", "choisissez un stream" in (d_["error"] or ""), str(d_)[:200])
+        check("nouvelle question : échéance illisible refusée", "Échéance illisible" in (e_["error"] or ""), str(e_)[:200])
+        check("nouvelle question : doublon dans le fichier refusé", "identique" in (f_["error"] or ""), str(f_)[:200])
+        check("nouvelle question : texte long, sujet abrégé, Wifirst par défaut", g_["action"] == "create" and g_["outcome"] == "PROVIDER" and g_["subject"].endswith("…") and len(g_["subject"]) <= 150 and g_["body"] == long_q.strip() and "15/12/2026" in g_["summary"], str(g_)[:300])
+        st, r5 = apply(lp, it5)
+        check("nouvelles questions : création", st == 200 and r5["done"] == 2 and all(x["ref"] for x in r5["results"]), str(r5)[:300])
+        if st == 200 and r5["done"]:
+            nq = lp.req("GET", f"{base}/questions/{r5['results'][0]['ref']}")[1]
+            check("nouvelle question créée : posée par Marie Durand (La Poste), attribuée à Wifirst, échéance", nq["askedBy"]["name"] == "Marie Durand" and nq["askedByParty"] == "CLIENT" and nq["assignedParty"] == "PROVIDER" and nq["dueDate"] == "2026-11-20" and [s["name"] for s in nq.get("streams", [])] in ([], ["Déploiement"]), str(nq)[:300])
+            hist = [e["summary"] for e in lp.req("GET", f"{base}/questions/{nq['id']}/history")[1]]
+            check("nouvelle question : historique avec la fiche navette et la personne qui importe", any("fiche navette" in x and "saisie par" in x for x in hist), str(hist)[:300])
+        st, p6 = preview(lp, data)
+        check("nouvelles questions : second import sans doublon", st == 200 and p6["ready"] == 0 and sum("existe déjà" in (i["error"] or "") for i in p6["items"]) == 2, str(p6)[:400])
+    # Wifirst : une question à traiter par La Poste ; sans organisation, Wifirst sans pouvoir la poser au nom de La Poste
+    data, *_ = with_new(wf, "status=open", [{"Stream": "Déploiement", "À traiter par": "La Poste", "Question": f"Question Wifirst {RUN}"}, {"Stream": "Déploiement", "Question": f"Question Wifirst 2 {RUN}"}])
+    st, p7 = preview(wf, data)
+    i7 = sorted(p7.get("items", []), key=lambda i: i["line"]) if st == 200 else []
+    check("nouvelle question de Wifirst, à traiter par La Poste", len(i7) == 2 and i7[0]["party"] == "PROVIDER" and i7[0]["outcome"] == "CLIENT", str(i7)[:300])
+    check("nouvelle question sans organisation : Wifirst, avec un avertissement si Wifirst ne peut la poser au nom de La Poste", len(i7) == 2 and i7[1]["outcome"] == "PROVIDER" and (i7[1]["party"] == "CLIENT" or "posée au nom de Wifirst" in (i7[1]["warning"] or "")), str(i7)[:300])
     # fichiers refusés
     st, r = preview(lp, b"pas un fichier excel")
     check("navette : fichier illisible refusé", st == 400 and "illisible" in str(r), str(r)[:200])

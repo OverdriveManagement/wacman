@@ -6,7 +6,7 @@ WiBridge est une interface autonome, publiée sur Vercel à l'adresse https://wi
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt. L'architecture commune est décrite dans `ARCHITECTURE.md` (partie WiBridge) et l'hébergement dans `EXPLOITATION.md`.
 
-Version courante : **V1.8** (9 octobre 2026).
+Version courante : **V1.9** (9 octobre 2026).
 
 ---
 
@@ -219,23 +219,24 @@ Un client archivé ou dont la règle « E-mails de notification » est désactiv
 
 ## 10. Fiche navette (export et import Excel)
 
-La fiche navette permet de répondre aux questions dans Excel, hors de WiBridge, puis de reverser les réponses.
+La fiche navette permet de répondre aux questions dans Excel, hors de WiBridge, et d'en poser de nouvelles, puis de reverser le tout dans WiBridge.
 
 ### 10.1 Export
 Bouton « Fiche navette » : fichier `Fiche navette Wifirst - La Poste <date>.xlsx` (organisation Wifirst et organisation cliente du client), avec les questions affichées (filtres de statut, d'attribution et de stream de l'écran) et visibles par la personne. Le fichier est fait pour être envoyé tel quel à l'organisation qui doit répondre : elle y voit toutes les questions et répond dans le même onglet, sans compte WiBridge. Ni le nom du fichier ni la feuille ne citent WiBridge ou l'export.
-- **Un seul onglet**, « Fiche navette ». En tête : le titre « Fiche navette Wifirst - La Poste » ; « Situation au <date> » avec le nombre de questions et les filtres ; le nombre de questions par stream et le nombre d'échéances dépassées ; le mode d'emploi en trois étapes, sur fond jaune (écrire la réponse, choisir le nouveau statut, renvoyer le fichier à son contact).
+- **Un seul onglet**, « Fiche navette ». En tête : le titre « Fiche navette Wifirst - La Poste » ; « Situation au <date> » avec le nombre de questions et les filtres ; le nombre de questions par stream et le nombre d'échéances dépassées ; le mode d'emploi sur fond jaune (écrire la réponse, choisir le nouveau statut, poser une question dans la partie « Nouvelles questions », renvoyer le fichier à son contact).
 - **Questions regroupées par stream**, dans l'ordre des streams du client : chaque groupe s'ouvre sur un bandeau de couleur (picto, nom du stream, nombre de questions). Une question à plusieurs streams est rangée sous son premier stream et la cellule « Stream » cite les autres. Dans un groupe, les questions sont triées par échéance (les plus proches d'abord, celles sans échéance à la fin), puis par numéro.
 - Colonnes, dans l'ordre de lecture : N°, Stream (couleur du stream), Échéance, À traiter par (organisation attributaire, « en cours » le cas échéant, ou « Clôturée »), Question (sujet en gras puis texte, sans les lignes vides ni les puces vides de fin), Derniers échanges (les trois derniers messages avec la date, l'auteur, l'organisation et l'issue, et le nombre d'échanges plus anciens), **Votre réponse**, **Nouveau statut**, Posée par (avec l'organisation et la date).
 - Stream, Échéance et À traiter par sont centrés dans leur cellule.
 - **Échéances en évidence** : texte en rouge si elle est dépassée, en orange si elle tombe dans les 7 jours, sans couleur de fond ; « Aucune » en gris quand il n'y en a pas. La légende figure en tête.
 - **Cellules de réponse** : « Votre réponse » et « Nouveau statut » sont des cellules jaunes encadrées, juste à droite de la question et des échanges ; « Nouveau statut » propose une liste de choix : « À traiter par Wifirst », « À traiter par La Poste » ou « Clôturer ». Les lignes sont assez hautes pour écrire une réponse de plusieurs lignes.
-- **Feuille protégée, sans mot de passe** : seules les cellules jaunes sont modifiables, ce qui évite d'abîmer le fichier avant son retour ; largeur des colonnes et hauteur des lignes restent réglables.
+- **Nouvelles questions** : en bas du tableau, sous un bandeau orange « Nouvelles questions », 20 lignes vides où l'organisation qui reçoit la fiche pose ses questions, une par ligne, dans les cellules jaunes : Stream (liste des streams actifs), Échéance (date, facultative), À traiter par (liste Wifirst ou La Poste ; Wifirst si vide), Question (le sujet sur la première ligne, le détail ensuite) et Posée par (son nom, facultatif). Les autres cellules de ces lignes sont grisées. On peut insérer des lignes pour en poser davantage.
+- **Feuille protégée, sans mot de passe** : seules les cellules jaunes sont modifiables, ce qui évite d'abîmer le fichier avant son retour ; largeur des colonnes et hauteur des lignes restent réglables, et l'on peut insérer des lignes.
 - Deux colonnes cachées, « ID » et « Version », identifient la question et sa dernière activité au moment de l'export.
 - En-tête du tableau figé ; impression en paysage sur la largeur d'une page, en-tête répété sur chaque page, pied de page avec le titre et la pagination.
 
 ### 10.2 Import
 Bouton « Importer », puis choix du fichier rempli :
-1. **Aperçu** : pour chaque ligne remplie, l'action prévue (par exemple « Réponse de La Poste, attribuée à Wifirst ») ou la raison pour laquelle elle sera ignorée. Les lignes sans réponse ni nouveau statut sont passées.
+1. **Aperçu** : pour chaque ligne remplie, l'action prévue (par exemple « Réponse de La Poste, attribuée à Wifirst » ou « Nouvelle question de La Poste (Marie Durand), à traiter par Wifirst : Déploiement, échéance le 20/11/2026 ») ou la raison pour laquelle elle sera ignorée. Les lignes sans réponse, sans nouveau statut et sans nouvelle question sont passées.
 2. **« Importer N lignes »** : les lignes retenues sont enregistrées, puis un compte rendu ligne par ligne s'affiche.
 
 Règles appliquées à chaque ligne, avec les droits de la personne qui importe, comme depuis l'écran :
@@ -246,10 +247,12 @@ Règles appliquées à chaque ligne, avec les droits de la personne qui importe,
 | Réponse et nouveau statut | Réponse avec cette issue (attribuer à l'autre organisation, conserver l'attribution, ou clôturer) |
 | Nouveau statut seul | Changement d'attribution, ou clôture, sans réponse |
 | Question clôturée, avec « À traiter par » une organisation | Réouverture, attribuée à cette organisation, avec la réponse comme motif |
+| Ligne de la partie « Nouvelles questions » | Création de la question, avec son stream, son échéance et l'organisation qui doit répondre |
 
 - La réponse est enregistrée au nom de l'organisation attributaire quand la personne qui importe peut répondre en son nom (membre du client pour une question attribuée au client, éditeur des deux, super-administrateur). Sinon, Wifirst l'enregistre en son nom, comme lorsqu'il complète une question à la place du client.
 - Chaque réponse importée porte la mention « fiche navette » dans les échanges, et l'historique l'indique.
-- Lignes ignorées, avec leur raison : question introuvable ou supprimée, réponse que la personne n'a pas le droit de faire, nouveau statut non reconnu, question clôturée sans « À traiter par », question en double dans le fichier, réponse déjà présente dans les échanges (un même fichier importé deux fois n'ajoute rien).
+- Nouvelle question : elle est posée au nom de l'autre organisation que celle qui doit répondre (une question à traiter par Wifirst est posée par La Poste) quand la personne qui importe peut poser des questions au nom de La Poste dans ce stream (membre du client, éditeur des deux, super-administrateur). Sinon, une question à traiter par Wifirst est posée au nom de Wifirst, avec un avertissement dans l'aperçu ; une question de La Poste ne peut pas être à traiter par La Poste. Le nom saisi dans « Posée par » est affiché comme auteur, à défaut celui de la personne qui importe ; l'historique indique « saisie par » la personne qui importe et la mention « fiche navette ». Un texte d'une seule ligne de plus de 150 caractères donne un sujet abrégé, le texte complet allant dans la question. Les e-mails d'attribution partent comme pour une question posée à l'écran.
+- Lignes ignorées, avec leur raison : nouvelle question sans stream, avec un stream inconnu ou inactif, une échéance illisible, une organisation non reconnue, identique à une autre ligne du fichier ou à une question existante (un même fichier importé deux fois ne crée rien) ; question introuvable ou supprimée, réponse que la personne n'a pas le droit de faire, nouveau statut non reconnu, question clôturée sans « À traiter par », question en double dans le fichier, réponse déjà présente dans les échanges (un même fichier importé deux fois n'ajoute rien).
 - Avertissement, sans blocage : la question a changé depuis l'export (nouvelle réponse ou modification).
 - Le texte de la colonne « Nouveau statut » est reconnu sans tenir compte des majuscules ni des accents ; le seul nom de l'organisation (« Wifirst », « La Poste ») et le sigle du client sont aussi acceptés. Une ligne se retrouve par son identifiant caché, à défaut par son numéro ; les bandeaux de stream sont ignorés. Les fiches exportées avant la V1.6 ou avant la V1.8 (colonne « Nouvel attribué ») restent importables.
 - Limites : fichier Excel (.xlsx) de 5 Mo et 1 000 lignes au plus, 500 lignes appliquées par import.
@@ -303,3 +306,4 @@ Menu utilisateur, « Administration » :
 | 09/10/2026 | Fiche navette : ne pas parler de renvoyer le fichier dans WiBridge dans le mode d'emploi ; centrer Stream, Échéance et À traiter par ; colorer le texte de l'échéance et non la cellule ; supprimer les sauts de ligne en fin de question | V1.7 : mode d'emploi terminé par « renvoyez le fichier à votre contact » ; trois colonnes centrées ; échéance en texte rouge ou orange, sans fond ; texte des questions et des échanges nettoyé (lignes vides, puces vides et caractères invisibles retirés en fin de cellule, deux sauts de ligne au plus d'affilée) (10) |
 | 09/10/2026 | Remplacer « Nouvel attribué » par « Nouveau statut », avec les valeurs « A traiter par Wifirst », « A traiter par La Poste » et « Cloturer » | V1.8 : colonne « Nouveau statut » et liste « À traiter par Wifirst », « À traiter par La Poste », « Clôturer » ; mode d'emploi, messages de l'aperçu et de l'import repris ; les anciennes valeurs et la colonne « Nouvel attribué » des fiches déjà envoyées restent reconnues (10) |
 | 09/10/2026 | Ne pas citer WiBridge dans le nom du fichier ni dans la feuille ; titre « Fiche navette Wifirst - La Poste » ; ne pas indiquer que la fiche a été exportée | V1.8 : fichier `Fiche navette Wifirst - La Poste <date>.xlsx` ; titre et pied de page « Fiche navette Wifirst - La Poste » ; « Situation au <date> » à la place de la date et de l'auteur de l'export ; plus de mention de WiBridge dans les échanges (10) |
+| 09/10/2026 | Permettre à la personne qui reçoit la fiche navette d'y ajouter des questions, dans le même onglet | V1.9 : partie « Nouvelles questions » en bas de la fiche (20 lignes, stream, échéance, organisation qui doit répondre, question, nom) ; à l'import, aperçu puis création des questions avec les droits de la personne qui importe, auteur repris de « Posée par », mention « fiche navette » et « saisie par » à l'historique, sans doublon au second import ; insertion de lignes permise dans la feuille protégée (10) |
