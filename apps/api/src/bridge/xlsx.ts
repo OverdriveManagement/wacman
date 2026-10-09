@@ -22,6 +22,8 @@ const ANSWER_BORDER = "FFF59E0B";
 const CLOSED_FILL = "FFF1F5F9";
 const GRID = "FFE2E8F0";
 const HEADER_ROW = 6;
+/** Colonnes dont le contenu est centré dans la cellule. */
+const CENTERED = new Set<string>(["ref", "stream", "due", "assigned"]);
 // couleurs des streams (fond clair de la cellule, bandeau foncé), dans l'ordre des streams du client
 const STREAM_COLORS = [
   ["FFDBEAFE", "FF1D4ED8"],
@@ -56,7 +58,18 @@ const LAST_VISIBLE = NAVETTE_COLUMNS.filter((c) => !("hidden" in c)).length;
 const day = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00Z`) : null);
 const stampOf = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const shortOf = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
-const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+/** Texte propre pour une cellule : sans caractères invisibles, sans lignes vides ni puces vides au début ou à la fin, deux sauts de ligne au plus d'affilée. */
+const tidy = (s: string) => {
+  const lines = s
+    .replace(/[\u200b-\u200d\u2060\ufeff\u00ad]/g, "")
+    .replace(/\r\n?|[\u000b\u000c\u2028\u2029]/g, "\n")
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, ""));
+  while (lines.length && /^\s*(?:[-*•☐☑])?$/.test(lines[lines.length - 1])) lines.pop();
+  while (lines.length && !lines[0].trim()) lines.shift();
+  return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+};
 /** Nombre de lignes affichées d'un texte dans une colonne (estimation, pour régler la hauteur des lignes). */
 const linesOf = (text: string, w: number) => text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / (w * 1.15))), 0);
 const thin = (argb: string) => ({ style: "thin" as const, color: { argb } });
@@ -104,7 +117,7 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
       16,
     ],
     [
-      `Pour répondre : 1. écrivez votre réponse dans la cellule jaune « Votre réponse » (Alt+Entrée sur Windows, Ctrl+Option+Entrée sur Mac pour aller à la ligne) ; 2. choisissez la suite dans « Nouvel attribué » (${ctx.client.providerName}, ${ctx.client.clientName} ou Clôturer ; laissée vide, la question est renvoyée à l'autre organisation) ; 3. renvoyez le fichier à votre contact, ou importez-le dans WiBridge (bouton Importer). Seules les cellules jaunes sont modifiables.`,
+      `Pour répondre : 1. écrivez votre réponse dans la cellule jaune « Votre réponse » (Alt+Entrée sur Windows, Ctrl+Option+Entrée sur Mac pour aller à la ligne) ; 2. choisissez la suite dans « Nouvel attribué » (${ctx.client.providerName}, ${ctx.client.clientName} ou Clôturer ; laissée vide, la question est renvoyée à l'autre organisation) ; 3. renvoyez le fichier à votre contact. Seules les cellules jaunes sont modifiables.`,
       { size: 10, bold: true, color: { argb: "FF0F172A" } },
       30,
     ],
@@ -130,7 +143,7 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
     const answer = c.key === "answer" || c.key === "target";
     cell.font = { name: FONT, size: 10, bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: answer ? ANSWER_HEAD : PETROL } };
-    cell.alignment = { vertical: "middle", horizontal: c.key === "ref" ? "center" : "left", wrapText: true };
+    cell.alignment = { vertical: "middle", horizontal: CENTERED.has(c.key) ? "center" : "left", wrapText: true };
     cell.border = { right: thin("FF0B5A7A") };
   });
   head.height = 22;
@@ -159,10 +172,11 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
     const shown = ms.slice(-3);
     const thread = [
       ...(ms.length > shown.length ? [`(${ms.length - shown.length} échange${ms.length - shown.length > 1 ? "s" : ""} plus ancien${ms.length - shown.length > 1 ? "s" : ""} dans WiBridge)`] : []),
-      ...shown.map((m) => `${shortOf(m.createdAt)}, ${m.authorName} (${label(m.party)}) :\n${clip(markupToPlain(m.body).trim() || "(pièce jointe)", 500)}`),
+      ...shown.map((m) => `${shortOf(m.createdAt)}, ${m.authorName} (${label(m.party)}) :\n${clip(tidy(markupToPlain(m.body)) || "(pièce jointe)", 500)}`),
     ].join("\n\n");
     const others = q.streamIds.filter((x) => x !== sid).map((x) => streamOf.get(x)?.name ?? "");
-    const body = clip(markupToPlain(q.body).trim(), 3000);
+    const subject = tidy(q.subject).replace(/\s*\n\s*/g, " ");
+    const body = clip(tidy(markupToPlain(q.body)), 3000);
     const closed = q.status === "CLOSED";
     const overdue = !closed && !!q.dueDate && q.dueDate < today;
     const near = !closed && !!q.dueDate && !overdue && q.dueDate <= soon;
@@ -171,7 +185,7 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
       stream: [streamOf.get(sid)?.name ?? "", ...others.map((o) => `+ ${o}`)].join("\n"),
       due: q.dueDate ? day(q.dueDate) : "Aucune",
       assigned: closed ? "Clôturée" : `${label(q.assignedParty)}${q.status === "IN_PROGRESS" ? "\n(en cours)" : ""}`,
-      question: { richText: [{ text: q.subject, font: { name: FONT, size: 11, bold: true, color: { argb: closed ? "FF64748B" : "FF0F172A" } } }, ...(body ? [{ text: `\n${body}`, font: { name: FONT, size: 10, color: { argb: closed ? "FF94A3B8" : "FF334155" } } }] : [])] },
+      question: { richText: [{ text: subject, font: { name: FONT, size: 11, bold: true, color: { argb: closed ? "FF64748B" : "FF0F172A" } } }, ...(body ? [{ text: `\n${body}`, font: { name: FONT, size: 10, color: { argb: closed ? "FF94A3B8" : "FF334155" } } }] : [])] },
       thread: thread || "Aucun échange.",
       answer: "",
       target: "",
@@ -189,19 +203,16 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
     });
     row.getCell("ref").font = { name: FONT, size: 11, bold: true, color: { argb: closed ? "FF94A3B8" : PETROL } };
     row.getCell("ref").alignment = { vertical: "top", horizontal: "center" };
+    for (const k of ["stream", "due", "assigned"] as const) row.getCell(k).alignment = { vertical: "middle", horizontal: "center", wrapText: true };
     const stc = row.getCell("stream");
     stc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: light } };
     stc.font = { name: FONT, size: 10, bold: true, color: { argb: strong } };
     const due = row.getCell("due");
     due.numFmt = "dd/mm/yyyy";
     if (!q.dueDate) due.font = { name: FONT, size: 10, italic: true, color: { argb: "FF94A3B8" } };
-    else if (overdue) {
-      due.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
-      due.font = { name: FONT, size: 10, bold: true, color: { argb: "FFB91C1C" } };
-    } else if (near) {
-      due.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFEDD5" } };
-      due.font = { name: FONT, size: 10, bold: true, color: { argb: "FFC2410C" } };
-    } else due.font = { name: FONT, size: 10, bold: true, color: { argb: closed ? "FF94A3B8" : "FF0F172A" } };
+    else if (overdue) due.font = { name: FONT, size: 10, bold: true, color: { argb: "FFDC2626" } };
+    else if (near) due.font = { name: FONT, size: 10, bold: true, color: { argb: "FFEA580C" } };
+    else due.font = { name: FONT, size: 10, bold: true, color: { argb: closed ? "FF94A3B8" : "FF0F172A" } };
     const as = row.getCell("assigned");
     if (!closed) as.font = { name: FONT, size: 10, bold: true, color: { argb: q.assignedParty === "PROVIDER" ? "FF1D4ED8" : "FFB45309" } };
     row.getCell("thread").font = { name: FONT, size: 9, color: { argb: "FF64748B" } };
@@ -216,7 +227,7 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
     row.getCell("target").alignment = { vertical: "top", horizontal: "center", wrapText: true };
     // hauteur : le texte le plus long, avec au moins quatre lignes pour écrire la réponse
     const lines = Math.max(
-      linesOf(`${q.subject}\n${body}`, width("question")),
+      linesOf(body ? `${subject}\n${body}` : subject, width("question")),
       linesOf(thread, width("thread") * 1.1),
       linesOf(row.getCell("stream").value as string, width("stream")),
       4,

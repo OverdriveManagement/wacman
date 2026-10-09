@@ -497,7 +497,10 @@ st, r = lp.req("GET", f"{base}/search?q=" + urllib.parse.quote("CORSE"))
 check("recherche dans les échanges, sans accents ni casse", st == 200 and q1["id"] in r["ids"], str(r))
 st, r = sec.req("GET", f"{base}/search?q=" + urllib.parse.quote("corse"))
 check("recherche : rien hors droits", st == 200 and q1["id"] not in r["ids"])
+# question au texte terminé par des sauts de ligne, une puce vide et un caractère invisible, échéance dépassée
+st, qt = create(wf, f"Fin de texte {RUN}", ["Déploiement"], body="Première ligne.\n\nDeuxième ligne.\n\n\n- \n\u200b\n\n", assignedParty="CLIENT", dueDate="2026-01-15")
 st, x = lp.req("GET", f"{base}/export.xlsx?status=all")
+wf.req("DELETE", f"{base}/questions/{qt['id']}")
 try:
     import openpyxl
 
@@ -516,6 +519,14 @@ try:
     check("fiche navette : questions regroupées par stream", any(b.startswith("🚚 Déploiement : ") for b in bands), str(bands)[:200])
     cell = data_rows[0][hdr["Votre réponse"] - 1]
     check("fiche navette : feuille protégée, cellules de réponse modifiables", ws.protection.sheet and cell.protection.locked is False and data_rows[0][hdr["Question"] - 1].protection.locked is not False)
+    rt = next((r for r in data_rows if str(r[hdr["Question"] - 1].value or "").startswith(f"Fin de texte {RUN}")), None)
+    qtext = str(rt[hdr["Question"] - 1].value) if rt else ""
+    check("fiche navette : sauts de ligne de fin de question supprimés", rt is not None and qtext.endswith("Deuxième ligne.") and "\n\n\n" not in qtext, repr(qtext))
+    due = rt[hdr["Échéance"] - 1] if rt else None
+    check("fiche navette : échéance dépassée en rouge, sans fond", due is not None and due.font.color.rgb.endswith("DC2626") and due.fill.fill_type in (None, "none"), repr(due and (due.font.color.rgb, due.fill.fill_type)))
+    check("fiche navette : stream, échéance et attribution centrés", rt is not None and all(rt[hdr[k] - 1].alignment.horizontal == "center" and rt[hdr[k] - 1].alignment.vertical == "center" for k in ("Stream", "Échéance", "À traiter par")))
+    intro = " ".join(str(ws.cell(i, 1).value or "") for i in range(1, 5))
+    check("fiche navette : mode d'emploi sans renvoi vers WiBridge", "renvoyez le fichier à votre contact" in intro and "Importer" not in intro, intro[-300:])
     st, x2 = sec.req("GET", f"{base}/export.xlsx?status=all")
     w2 = openpyxl.load_workbook(io.BytesIO(x2))["Fiche navette"]
     s2 = [str(r[hdr["Question"] - 1].value or "") for r in w2.iter_rows(min_row=7) if isinstance(r[0].value, int)]
