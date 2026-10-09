@@ -100,6 +100,7 @@ Avec le connecteur Vercel, passer l'identifiant du projet sans préciser l'équi
 | 09/10/2026 | WiBridge V1.5 | une seule question dépliée à la fois |
 | 09/10/2026 | WiBridge V1.6 | fiche navette refaite pour être envoyée telle quelle : questions par stream sous des bandeaux de couleur, échéances en évidence, cellules de réponse jaunes, feuille protégée |
 | 09/10/2026 | WiBridge V1.7 | fiche navette : mode d'emploi sans renvoi vers WiBridge, colonnes centrées, échéance en texte coloré, sauts de ligne de fin de question supprimés |
+| 09/10/2026 | WiBridge V1.8 | fiche navette : colonne « Nouveau statut » (À traiter par Wifirst, À traiter par La Poste, Clôturer) ; titre et fichier « Fiche navette Wifirst - La Poste », sans WiBridge ni mention d'export |
 
 Données reprises en production par les migrations : dates « Mis à jour » Notion des cartes La Poste (0003) ; 7 actions du COPROJ LP du 01/10/2026, 4 décisions du Strategic Committee du 29/09/2026 tirées des sujets, réglages d'e-mail du COPROJ LP (0004) ; client WiBridge La Poste, ses 7 streams et l'accès du super-administrateur (0005).
 

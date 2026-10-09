@@ -4,7 +4,7 @@ import { other, parse, partyLabel, type BridgeCtx, type Party } from "./common.j
 import { assignQuestion, closeQuestion, getQuestion, reopenQuestion, respondQuestion } from "./questions.js";
 
 /**
- * Fiche navette : réimport des réponses saisies dans l'export Excel (colonnes « Votre réponse » et « Nouvel attribué »).
+ * Fiche navette : réimport des réponses saisies dans l'export Excel (colonnes « Votre réponse » et « Nouveau statut », anciennement « Nouvel attribué »).
  * Chaque ligne est d'abord analysée (aperçu), puis appliquée par les mêmes services que l'écran : mêmes droits,
  * même historique, mêmes e-mails. Les réponses importées sont marquées « fiche navette ».
  */
@@ -63,15 +63,18 @@ export const navetteText = (s: string) =>
     .trim();
 const same = (a: string, b: string) => norm(a) === norm(b);
 
-/** Lit la valeur de la colonne « Nouvel attribué » : nom d'une organisation, son sigle, ou « Clôturer ». */
+/** Choix proposés dans la colonne « Nouveau statut » de la fiche navette. */
+export const navetteStatusChoices = (c: { providerName: string; clientName: string }) => [`À traiter par ${c.providerName}`, `À traiter par ${c.clientName}`, "Clôturer"];
+
+/** Lit la valeur de la colonne « Nouveau statut » : « À traiter par » suivi d'une organisation (ou son seul nom, ou le sigle du client), ou « Clôturer ». */
 export function parseNavetteTarget(ctx: BridgeCtx, raw: string): { target: NavetteTarget; error: string | null } {
-  const v = norm(raw);
+  const v = norm(raw).replace(/^(?:a traiter par|attribuer a|attribuee a|attribue a|a)\s+/, "");
   if (!v) return { target: null, error: null };
   const c = ctx.client;
   if (v === norm(c.providerName)) return { target: "PROVIDER", error: null };
   if (v === norm(c.clientName) || (c.shortName && v === norm(c.shortName))) return { target: "CLIENT", error: null };
   if (["cloturer", "cloture", "cloturee", "clore", "close", "fermer"].includes(v)) return { target: "CLOSE", error: null };
-  return { target: null, error: `Nouvel attribué non reconnu : « ${raw.trim()} » (attendu : ${c.providerName}, ${c.clientName} ou Clôturer).` };
+  return { target: null, error: `Nouveau statut non reconnu : « ${raw.trim()} » (attendu : ${navetteStatusChoices(c).join(", ").replace(/, (?=[^,]*$)/, " ou ")}).` };
 }
 
 const label = (ctx: BridgeCtx, p: Party | null | undefined) => partyLabel(ctx.client, p);
@@ -122,7 +125,7 @@ async function planRow(ctx: BridgeCtx, row: NavetteRow, seen: Map<string, number
   const target = row.target;
   if (q.status === "CLOSED") {
     if (target === "CLOSE") return fail("Question déjà clôturée.");
-    if (!target) return fail("Question clôturée : indiquez un nouvel attribué pour la rouvrir avec cette réponse.");
+    if (!target) return fail(`Question clôturée : choisissez « ${navetteStatusChoices(ctx.client)[0]} » ou « ${navetteStatusChoices(ctx.client)[1]} » dans « Nouveau statut » pour la rouvrir avec cette réponse.`);
     if (!q.perms.reopenAs.length) return fail("Question clôturée : vous ne pouvez pas la rouvrir.");
     const acting = q.perms.reopenAs.includes(ctx.side) ? ctx.side : q.perms.reopenAs[0];
     return { ...plan, action: "reopen", party: acting, outcome: target, summary: `Réouverture${body ? " avec cette réponse" : ""}, attribuée à ${label(ctx, target)}` };

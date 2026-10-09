@@ -114,7 +114,7 @@ export function NavetteImport({ file, onClose }: { file: File | null; onClose: (
           {preview.items.length ? (
             <Lines items={preview.items.map((i) => ({ key: i.line, ref: i.ref, subject: i.subject, text: i.error ?? i.summary, ok: !i.error, warning: i.warning, body: i.body }))} />
           ) : (
-            <p className="text-sm text-muted">Aucune réponse ni nouvel attribué dans le fichier : remplissez les colonnes jaunes puis importez-le de nouveau.</p>
+            <p className="text-sm text-muted">Aucune réponse ni nouveau statut dans le fichier : remplissez les colonnes jaunes puis importez-le de nouveau.</p>
           )}
         </div>
       )}

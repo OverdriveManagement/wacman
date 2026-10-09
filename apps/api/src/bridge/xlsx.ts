@@ -4,7 +4,7 @@ import { Bridge, HttpError, markupToPlain } from "@wacman/core";
 /**
  * Fiche navette Excel, pensée pour l'organisation qui la reçoit : un seul onglet, les questions regroupées par stream
  * (bandeau de couleur), l'échéance mise en évidence, puis la question, les derniers échanges et la cellule de réponse
- * juste à côté (« Votre réponse », « Nouvel attribué », seules cellules modifiables). Le fichier se réimporte dans
+ * juste à côté (« Votre réponse », « Nouveau statut », seules cellules modifiables). Le fichier se réimporte dans
  * WiBridge (`readNavette`) : deux colonnes cachées portent l'identifiant de la question et sa dernière activité.
  */
 
@@ -45,7 +45,7 @@ export const NAVETTE_COLUMNS = [
   { key: "question", header: "Question", width: 52 },
   { key: "thread", header: "Derniers échanges", width: 42 },
   { key: "answer", header: "Votre réponse", width: 56 },
-  { key: "target", header: "Nouvel attribué", width: 17 },
+  { key: "target", header: "Nouveau statut", width: 22 },
   { key: "askedBy", header: "Posée par", width: 20 },
   { key: "id", header: "ID", width: 38, hidden: true },
   { key: "version", header: "Version", width: 26, hidden: true },
@@ -56,7 +56,6 @@ const width = (k: Key) => NAVETTE_COLUMNS.find((c) => c.key === k)!.width;
 const LAST_VISIBLE = NAVETTE_COLUMNS.filter((c) => !("hidden" in c)).length;
 
 const day = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00Z`) : null);
-const stampOf = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const shortOf = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 /** Texte propre pour une cellule : sans caractères invisibles, sans lignes vides ni puces vides au début ou à la fin, deux sauts de ligne au plus d'affilée. */
@@ -93,31 +92,35 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
   const colorOf = (sid: string) => STREAM_COLORS[(order.get(sid) ?? 0) % STREAM_COLORS.length];
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = "WiBridge";
+  const title = `Fiche navette ${ctx.client.providerName} - ${ctx.client.clientName}`;
+  wb.creator = ctx.client.providerName;
+  wb.title = title;
   const ws = wb.addWorksheet("Fiche navette", { properties: { defaultRowHeight: 16 }, views: [{ state: "frozen", ySplit: HEADER_ROW, showGridLines: false }] });
   ws.columns = NAVETTE_COLUMNS.map((c) => ({ key: c.key, width: c.width, hidden: "hidden" in c ? c.hidden : false }));
 
-  // ---- en-tête de la fiche : titre, export, repères, mode d'emploi
+  // ---- en-tête de la fiche : titre, situation, repères, mode d'emploi
   const counts = new Map<string, number>();
   for (const q of rows) counts.set(main(q), (counts.get(main(q)) ?? 0) + 1);
   const late = rows.filter((q) => q.status !== "CLOSED" && q.dueDate && q.dueDate < today).length;
+  const choices = Bridge.navetteStatusChoices(ctx.client);
+  const plural = rows.length > 1 ? "s" : "";
   const what = [
-    filters.status === "open" ? "questions ouvertes" : filters.status === "closed" ? "questions clôturées" : "toutes les questions",
+    `${rows.length} question${plural}${filters.status === "open" ? ` ouverte${plural}` : filters.status === "closed" ? ` clôturée${plural}` : ""}`,
     filters.assigned !== "all" ? `à traiter par ${label(filters.assigned)}` : "",
     filters.stream ? `stream ${streamOf.get(filters.stream)?.name ?? ""}` : "",
   ]
     .filter(Boolean)
     .join(", ");
   const top: [string, Partial<ExcelJS.Font>, number][] = [
-    [`Fiche navette WiBridge : ${ctx.client.name}`, { size: 16, bold: true, color: { argb: PETROL } }, 26],
-    [`${rows.length} question${rows.length > 1 ? "s" : ""} (${what}), exportée${rows.length > 1 ? "s" : ""} le ${stampOf(new Date())} par ${ctx.user.name}.`, { size: 10, color: { argb: "FF475569" } }, 16],
+    [title, { size: 16, bold: true, color: { argb: PETROL } }, 26],
+    [`Situation au ${new Date().toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })} : ${what}.`, { size: 10, color: { argb: "FF475569" } }, 16],
     [
       `Par stream : ${[...counts].map(([sid, n]) => `${streamOf.get(sid)?.name ?? "sans stream"} ${n}`).join(", ") || "aucune question"}.${late ? ` Échéances dépassées : ${late}.` : ""} Échéance en rouge si elle est dépassée, en orange si elle tombe dans les 7 jours.`,
       { size: 10, color: { argb: "FF475569" } },
       16,
     ],
     [
-      `Pour répondre : 1. écrivez votre réponse dans la cellule jaune « Votre réponse » (Alt+Entrée sur Windows, Ctrl+Option+Entrée sur Mac pour aller à la ligne) ; 2. choisissez la suite dans « Nouvel attribué » (${ctx.client.providerName}, ${ctx.client.clientName} ou Clôturer ; laissée vide, la question est renvoyée à l'autre organisation) ; 3. renvoyez le fichier à votre contact. Seules les cellules jaunes sont modifiables.`,
+      `Pour répondre : 1. écrivez votre réponse dans la cellule jaune « Votre réponse » (Alt+Entrée sur Windows, Ctrl+Option+Entrée sur Mac pour aller à la ligne) ; 2. choisissez la suite dans « Nouveau statut » (${choices.join(", ").replace(/, (?=[^,]*$)/, " ou ")} ; laissé vide, la question est renvoyée à l'autre organisation) ; 3. renvoyez le fichier à votre contact. Seules les cellules jaunes sont modifiables.`,
       { size: 10, bold: true, color: { argb: "FF0F172A" } },
       30,
     ],
@@ -171,7 +174,7 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
     const ms = byQuestion.get(q.id) ?? [];
     const shown = ms.slice(-3);
     const thread = [
-      ...(ms.length > shown.length ? [`(${ms.length - shown.length} échange${ms.length - shown.length > 1 ? "s" : ""} plus ancien${ms.length - shown.length > 1 ? "s" : ""} dans WiBridge)`] : []),
+      ...(ms.length > shown.length ? [`(${ms.length - shown.length} échange${ms.length - shown.length > 1 ? "s" : ""} plus ancien${ms.length - shown.length > 1 ? "s" : ""})`] : []),
       ...shown.map((m) => `${shortOf(m.createdAt)}, ${m.authorName} (${label(m.party)}) :\n${clip(tidy(markupToPlain(m.body)) || "(pièce jointe)", 500)}`),
     ].join("\n\n");
     const others = q.streamIds.filter((x) => x !== sid).map((x) => streamOf.get(x)?.name ?? "");
@@ -241,31 +244,30 @@ export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: Navet
     r.getCell(1).font = { name: FONT, size: 11, italic: true, color: { argb: "FF64748B" } };
   }
 
-  // liste de choix de « Nouvel attribué » : une seule règle pour la colonne (des règles qui se chevauchent abîment le fichier)
-  const names = [ctx.client.providerName, ctx.client.clientName, "Clôturer"];
-  if (firstData && names.every((n) => !/[,"]/.test(n))) {
+  // liste de choix de « Nouveau statut » : une seule règle pour la colonne (des règles qui se chevauchent abîment le fichier)
+    if (firstData && choices.every((n) => !/[,"]/.test(n))) {
     const letter = ws.getColumn(col("target")).letter;
     (ws as unknown as { dataValidations: { add: (range: string, v: ExcelJS.DataValidation) => void } }).dataValidations.add(`${letter}${firstData}:${letter}${lastData}`, {
       type: "list",
       allowBlank: true,
-      formulae: [`"${names.join(",")}"`],
+      formulae: [`"${choices.join(",")}"`],
       showErrorMessage: true,
-      errorTitle: "Nouvel attribué",
-      error: `Choisissez ${names.join(", ")} ou laissez vide.`,
+      errorTitle: "Nouveau statut",
+      error: `Choisissez ${choices.join(", ")} ou laissez vide.`,
       showInputMessage: true,
-      promptTitle: "Nouvel attribué",
-      prompt: `${names.join(", ")}. Laissé vide : la question est renvoyée à l'autre organisation.`,
+      promptTitle: "Nouveau statut",
+      prompt: `${choices.join(", ")}. Laissé vide : la question est renvoyée à l'autre organisation.`,
     });
   }
   // impression : paysage, largeur sur une page, titres des colonnes répétés
   ws.pageSetup = { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: `${HEADER_ROW}:${HEADER_ROW}`, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } };
-  ws.headerFooter = { oddFooter: `&L${ctx.client.name} : fiche navette WiBridge&RPage &P sur &N` };
+  ws.headerFooter = { oddFooter: `&L${title}&RPage &P sur &N` };
   // feuille protégée sans mot de passe : seules les cellules de réponse se modifient ; lignes et colonnes restent ajustables
   await ws.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatRows: true, formatColumns: true, formatCells: false, sort: false, autoFilter: false });
 
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
-  const stamp = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" }).replace(/-/g, "");
-  return { buffer, filename: `WiBridge_${ctx.client.slug}_fiche_navette_${stamp}.xlsx` };
+  const stamp = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+  return { buffer, filename: `${title} ${stamp}.xlsx` };
 }
 
 const norm = (s: string) =>
@@ -287,7 +289,7 @@ function cellText(cell: ExcelJS.Cell): string {
   return cell.text ?? "";
 }
 
-/** Relit une fiche navette : lignes avec identifiant ou numéro, réponse et nouvel attribué. */
+/** Relit une fiche navette : lignes avec identifiant ou numéro, réponse et nouveau statut. */
 export async function readNavette(buffer: Buffer, ctx: Bridge.BridgeCtx): Promise<Bridge.NavetteRow[]> {
   const wb = new ExcelJS.Workbook();
   try {
@@ -295,14 +297,15 @@ export async function readNavette(buffer: Buffer, ctx: Bridge.BridgeCtx): Promis
   } catch {
     throw new HttpError(400, "Fichier illisible : importez la fiche navette exportée par WiBridge, au format Excel (.xlsx).");
   }
-  const wanted = { ref: norm("Réf."), id: "id", version: "version", answer: norm("Votre réponse"), target: norm("Nouvel attribué") };
+  const wanted = { ref: norm("Réf."), id: "id", version: "version", answer: norm("Votre réponse"), target: norm("Nouveau statut") };
+  const targetAliases = new Set([norm("Nouveau statut"), norm("Nouvel attribué")]); // fiches exportées avant la V1.8
   const refAliases = new Set([norm("Réf."), norm("N°"), "numero", "no"]);
   for (const ws of wb.worksheets) {
     for (let r = 1; r <= Math.min(ws.rowCount, 20); r++) {
       const cols: Partial<Record<keyof typeof wanted, number>> = {};
       ws.getRow(r).eachCell((cell, c) => {
         const t = norm(cellText(cell));
-        for (const [k, v] of Object.entries(wanted) as [keyof typeof wanted, string][]) if ((t === v || (k === "ref" && refAliases.has(t))) && cols[k] === undefined) cols[k] = c;
+        for (const [k, v] of Object.entries(wanted) as [keyof typeof wanted, string][]) if ((t === v || (k === "ref" && refAliases.has(t)) || (k === "target" && targetAliases.has(t))) && cols[k] === undefined) cols[k] = c;
       });
       if (cols.answer === undefined || cols.target === undefined) continue;
       const rows: Bridge.NavetteRow[] = [];
@@ -320,5 +323,5 @@ export async function readNavette(buffer: Buffer, ctx: Bridge.BridgeCtx): Promis
       return rows;
     }
   }
-  throw new HttpError(400, "Ce fichier n'est pas une fiche navette WiBridge : colonnes « Votre réponse » et « Nouvel attribué » introuvables.");
+  throw new HttpError(400, "Ce fichier n'est pas une fiche navette WiBridge : colonnes « Votre réponse » et « Nouveau statut » introuvables.");
 }

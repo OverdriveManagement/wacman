@@ -509,7 +509,7 @@ try:
     check("fiche navette : un seul onglet", wb.sheetnames == ["Fiche navette"], str(wb.sheetnames))
     ws = wb["Fiche navette"]
     hdr = {c.value: c.column for c in ws[6] if c.value}
-    check("fiche navette : colonnes", all(k in hdr for k in ["N°", "Stream", "Échéance", "À traiter par", "Question", "Derniers échanges", "Votre réponse", "Nouvel attribué", "ID", "Version"]), str(hdr))
+    check("fiche navette : colonnes", all(k in hdr for k in ["N°", "Stream", "Échéance", "À traiter par", "Question", "Derniers échanges", "Votre réponse", "Nouveau statut", "ID", "Version"]), str(hdr))
     check("fiche navette : réponse juste après la question et les échanges", hdr["Votre réponse"] == hdr["Derniers échanges"] + 1 == hdr["Question"] + 2, str(hdr))
     check("fiche navette : identifiants cachés", ws.column_dimensions[openpyxl.utils.get_column_letter(hdr["ID"])].hidden)
     data_rows = [r for r in ws.iter_rows(min_row=7) if isinstance(r[hdr["N°"] - 1].value, int)]
@@ -526,6 +526,10 @@ try:
     check("fiche navette : échéance dépassée en rouge, sans fond", due is not None and due.font.color.rgb.endswith("DC2626") and due.fill.fill_type in (None, "none"), repr(due and (due.font.color.rgb, due.fill.fill_type)))
     check("fiche navette : stream, échéance et attribution centrés", rt is not None and all(rt[hdr[k] - 1].alignment.horizontal == "center" and rt[hdr[k] - 1].alignment.vertical == "center" for k in ("Stream", "Échéance", "À traiter par")))
     intro = " ".join(str(ws.cell(i, 1).value or "") for i in range(1, 5))
+    texts = " ".join(str(c.value) for row in ws.iter_rows() for c in row if c.value is not None)
+    check("fiche navette : titre « Fiche navette Wifirst - La Poste », sans WiBridge ni mention d'export", ws.cell(1, 1).value == "Fiche navette Wifirst - La Poste" and "WiBridge" not in texts and "export" not in texts.lower() and "WiBridge" not in (ws.oddFooter.left.text or ""), str(ws.cell(2, 1).value))
+    dv = [d for d in ws.data_validations.dataValidation if d.type == "list"]
+    check("fiche navette : colonne « Nouveau statut » avec la liste À traiter par Wifirst, À traiter par La Poste, Clôturer", len(dv) == 1 and dv[0].formula1 == '"À traiter par Wifirst,À traiter par La Poste,Clôturer"' and "« Nouveau statut »" in intro, repr(dv and dv[0].formula1))
     check("fiche navette : mode d'emploi sans renvoi vers WiBridge", "renvoyez le fichier à votre contact" in intro and "Importer" not in intro, intro[-300:])
     st, x2 = sec.req("GET", f"{base}/export.xlsx?status=all")
     w2 = openpyxl.load_workbook(io.BytesIO(x2))["Fiche navette"]
@@ -536,8 +540,9 @@ try:
     a3 = {str(r[hdr["À traiter par"] - 1].value).split("\n")[0] for r in w3.iter_rows(min_row=7) if isinstance(r[0].value, int)}
     check("fiche navette : filtre d'attribution", a3 == {"La Poste"}, str(a3))
 
-    def navette(session, query, fills):
-        """Exporte la fiche navette, remplit les colonnes de réponse ({réf: (réponse, nouvel attribué)}) et renvoie le fichier."""
+    def navette(session, query, fills, legacy=False):
+        """Exporte la fiche navette, remplit les colonnes de réponse ({réf: (réponse, nouveau statut)}) et renvoie le fichier.
+        legacy : titre de colonne d'avant la V1.8 (« Nouvel attribué »)."""
         st, data = session.req("GET", f"{base}/export.xlsx?{query}")
         book = openpyxl.load_workbook(io.BytesIO(data))
         sh = book["Fiche navette"]
@@ -546,7 +551,9 @@ try:
             ref = row[h["N°"] - 1].value
             if ref in fills:
                 sh.cell(row[0].row, h["Votre réponse"]).value = fills[ref][0]
-                sh.cell(row[0].row, h["Nouvel attribué"]).value = fills[ref][1]
+                sh.cell(row[0].row, h["Nouveau statut"]).value = fills[ref][1]
+        if legacy:
+            sh.cell(6, h["Nouveau statut"]).value = "Nouvel attribué"
         out = io.BytesIO()
         book.save(out)
         return out.getvalue()
@@ -565,7 +572,7 @@ try:
     _, nf = create(wf, f"Navette F {RUN}", ["Déploiement"], assignedParty="CLIENT")
     fills = {
         na["ref"]: ("Voici la liste.\nAvec un retour à la ligne.", None),
-        nb["ref"]: ("Premiers éléments, la suite vendredi.", "La Poste"),
+        nb["ref"]: ("Premiers éléments, la suite vendredi.", "À traiter par La Poste"),
         nc["ref"]: ("Je complète ma question.", None),
         nd["ref"]: (None, "Clôturer"),
         ne["ref"]: (None, "wifirst"),
@@ -579,7 +586,7 @@ try:
     check("navette, aperçu : attribution conservée", by.get(nb["ref"], {}).get("outcome") == "CLIENT", str(by.get(nb["ref"]))[:300])
     check("navette, aperçu : question attribuée à Wifirst refusée au client", "vous ne pouvez pas y répondre" in (by.get(nc["ref"], {}).get("error") or ""), str(by.get(nc["ref"]))[:300])
     check("navette, aperçu : clôture et changement d'attribution sans réponse", by.get(nd["ref"], {}).get("action") == "close" and by.get(ne["ref"], {}).get("action") == "assign", str([by.get(nd["ref"]), by.get(ne["ref"])])[:300])
-    check("navette, aperçu : nouvel attribué non reconnu", "non reconnu" in (by.get(nf["ref"], {}).get("error") or ""), str(by.get(nf["ref"]))[:300])
+    check("navette, aperçu : nouveau statut non reconnu", "Nouveau statut non reconnu" in (by.get(nf["ref"], {}).get("error") or "") and "À traiter par Wifirst" in by[nf["ref"]]["error"], str(by.get(nf["ref"]))[:300])
     st, r = apply(lp, p["items"])
     check("navette : import appliqué", st == 200 and r["done"] == 4 and r["failed"] == 0, str(r)[:300])
     da = lp.req("GET", f"{base}/questions/{na['id']}")[1]
@@ -591,8 +598,8 @@ try:
     check("navette : historique", any("fiche navette" in e["summary"] for e in h), str([e["summary"] for e in h])[:300])
     st, p2 = preview(lp, data)
     check("navette : second import du même fichier sans effet", st == 200 and p2["ready"] == 0 and "déjà dans les échanges" in (next(i for i in p2["items"] if i["ref"] == na["ref"])["error"] or ""), str(p2)[:400])
-    # question clôturée : un nouvel attribué la rouvre avec la réponse
-    data = navette(lp, "status=all", {nd["ref"]: ("Finalement, il manque un site.", "Wifirst")})
+    # question clôturée : un nouveau statut « à traiter par » la rouvre avec la réponse (ici sans accent, dans une fiche d'avant la V1.8)
+    data = navette(lp, "status=all", {nd["ref"]: ("Finalement, il manque un site.", "A traiter par Wifirst")}, legacy=True)
     st, p3 = preview(lp, data)
     i3 = p3["items"][0] if st == 200 and p3["items"] else {}
     check("navette : réouverture d'une question clôturée", i3.get("action") == "reopen", str(p3)[:300])

@@ -313,7 +313,7 @@ with sync_playwright() as p:
     # export Excel : fiche navette
     with pg.expect_download() as dl:
         pg.click("button[title^='Exporter']")
-    check("export de la fiche navette", dl.value.suggested_filename.startswith(f"WiBridge_{SLUG}_fiche_navette_") and dl.value.suggested_filename.endswith(".xlsx"), dl.value.suggested_filename)
+    check("export de la fiche navette, nommée sans WiBridge", re.fullmatch(r"Fiche navette .+ - .+ \d{4}-\d{2}-\d{2}\.xlsx", dl.value.suggested_filename) is not None and "WiBridge" not in dl.value.suggested_filename, dl.value.suggested_filename)
 
     # -----------------------------------------------------------------------
     # La Poste : répond, conserve, clôture, rouvre
