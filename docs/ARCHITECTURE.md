@@ -132,7 +132,7 @@ WiBridge partage l'API, la base, Resend et le dépôt de WacMan. Spécification 
 | `apps/api/src/bridge/routes.ts` | routes `/api/bridge/*` |
 | `apps/api/src/bridge/session.ts` | cookies et jetons WiBridge |
 | `apps/api/src/bridge/mail.ts` | e-mails (gabarits, envoi Resend, boîte d'envoi de développement) ; `noAccessMail` répond à un mot de passe oublié demandé pour une adresse sans compte WiBridge actif (`bridgeStartReset` renvoie alors `noAccess`) |
-| `apps/api/src/bridge/xlsx.ts` | fiche navette Excel (exceljs) : export d'un onglet avec colonnes de réponse, liste de choix et colonnes cachées ID et Version (`buildNavetteWorkbook`), relecture du fichier rempli (`readNavette`, colonnes retrouvées par leur titre) |
+| `apps/api/src/bridge/xlsx.ts` | fiche navette Excel (exceljs) : export d'un onglet (`buildNavetteWorkbook`) avec en-tête et mode d'emploi sur les lignes 1 à 4, titres de colonnes en ligne 6, questions regroupées par stream principal sous des lignes de bandeau fusionnées (couleurs `STREAM_COLORS` dans l'ordre des streams), échéances colorées (dépassée, à moins de 7 jours), cellules « Votre réponse » et « Nouvel attribué » déverrouillées avec liste de choix, feuille protégée sans mot de passe, colonnes cachées ID et Version ; relecture du fichier rempli (`readNavette` : ligne de titres cherchée dans les 20 premières lignes, colonnes retrouvées par leur titre, « N° » ou « Réf. » pour le numéro, lignes sans identifiant ni numéro ignorées, donc les bandeaux et les fiches d'avant la V1.6 passent) |
 | `apps/api/src/bridge/scheduler.ts` | récapitulatif quotidien |
 | `apps/bridge` | interface |
 

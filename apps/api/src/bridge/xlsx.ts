@@ -2,9 +2,10 @@ import ExcelJS from "exceljs";
 import { Bridge, HttpError, markupToPlain } from "@wacman/core";
 
 /**
- * Fiche navette Excel : un seul onglet, une question par ligne, avec deux colonnes à remplir par l'attribué
- * (« Votre réponse », « Nouvel attribué »). Le même fichier se réimporte dans WiBridge (`readNavette`).
- * Deux colonnes cachées portent l'identifiant de la question et sa dernière activité au moment de l'export.
+ * Fiche navette Excel, pensée pour l'organisation qui la reçoit : un seul onglet, les questions regroupées par stream
+ * (bandeau de couleur), l'échéance mise en évidence, puis la question, les derniers échanges et la cellule de réponse
+ * juste à côté (« Votre réponse », « Nouvel attribué », seules cellules modifiables). Le fichier se réimporte dans
+ * WiBridge (`readNavette`) : deux colonnes cachées portent l'identifiant de la question et sa dernière activité.
  */
 
 export interface NavetteFilters {
@@ -13,147 +14,243 @@ export interface NavetteFilters {
   stream: string | null;
 }
 
+const FONT = "Calibri";
 const PETROL = "FF004968";
-const ANSWER_HEAD = "FFD97706";
-const ANSWER_FILL = "FFFFF4CC";
-const CLOSED_FILL = "FFEDEFF2";
-const STATUS: Record<string, string> = { OPEN: "À traiter", IN_PROGRESS: "En cours", CLOSED: "Clôturée" };
-const HEADER_ROW = 5;
+const ANSWER_HEAD = "FFB45309";
+const ANSWER_FILL = "FFFFF7D6";
+const ANSWER_BORDER = "FFF59E0B";
+const CLOSED_FILL = "FFF1F5F9";
+const GRID = "FFE2E8F0";
+const HEADER_ROW = 6;
+// couleurs des streams (fond clair de la cellule, bandeau foncé), dans l'ordre des streams du client
+const STREAM_COLORS = [
+  ["FFDBEAFE", "FF1D4ED8"],
+  ["FFCCFBF1", "FF0F766E"],
+  ["FFEDE9FE", "FF6D28D9"],
+  ["FFFEF3C7", "FFB45309"],
+  ["FFFFE4E6", "FFBE123C"],
+  ["FFDCFCE7", "FF15803D"],
+  ["FFCFFAFE", "FF0E7490"],
+  ["FFE2E8F0", "FF334155"],
+];
 
-/** Libellés des colonnes : ceux de la réponse et des colonnes cachées servent aussi à relire le fichier. */
+/** Colonnes : les titres de la réponse et des colonnes cachées servent aussi à relire le fichier. */
 export const NAVETTE_COLUMNS = [
-  { key: "ref", header: "Réf.", width: 7 },
-  { key: "subject", header: "Sujet", width: 30 },
-  { key: "body", header: "Question", width: 48 },
-  { key: "streams", header: "Streams", width: 18 },
-  { key: "askedBy", header: "Posée par", width: 22 },
-  { key: "createdAt", header: "Posée le", width: 11 },
-  { key: "assigned", header: "Attribuée à", width: 13 },
-  { key: "status", header: "Statut", width: 11 },
-  { key: "due", header: "Échéance", width: 11 },
-  { key: "thread", header: "Échanges", width: 60 },
-  { key: "answer", header: "Votre réponse", width: 55 },
+  { key: "ref", header: "N°", width: 6 },
+  { key: "stream", header: "Stream", width: 16 },
+  { key: "due", header: "Échéance", width: 13 },
+  { key: "assigned", header: "À traiter par", width: 12 },
+  { key: "question", header: "Question", width: 52 },
+  { key: "thread", header: "Derniers échanges", width: 42 },
+  { key: "answer", header: "Votre réponse", width: 56 },
   { key: "target", header: "Nouvel attribué", width: 17 },
+  { key: "askedBy", header: "Posée par", width: 20 },
   { key: "id", header: "ID", width: 38, hidden: true },
   { key: "version", header: "Version", width: 26, hidden: true },
 ] as const;
+type Key = (typeof NAVETTE_COLUMNS)[number]["key"];
+const col = (k: Key) => NAVETTE_COLUMNS.findIndex((c) => c.key === k) + 1;
+const width = (k: Key) => NAVETTE_COLUMNS.find((c) => c.key === k)!.width;
+const LAST_VISIBLE = NAVETTE_COLUMNS.filter((c) => !("hidden" in c)).length;
 
 const day = (iso: string | null) => (iso ? new Date(`${iso}T00:00:00Z`) : null);
-// date et heure de Paris, sans fuseau (Excel n'en gère pas)
-const local = (d: Date | string | null) => (d ? new Date(`${new Date(d).toLocaleString("sv-SE", { timeZone: "Europe/Paris" }).replace(" ", "T")}Z`) : null);
 const stampOf = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
-const clip = (s: string, n = 30000) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+const shortOf = (d: Date | string) => new Date(d).toLocaleString("fr-FR", { timeZone: "Europe/Paris", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+/** Nombre de lignes affichées d'un texte dans une colonne (estimation, pour régler la hauteur des lignes). */
+const linesOf = (text: string, w: number) => text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / (w * 1.15))), 0);
+const thin = (argb: string) => ({ style: "thin" as const, color: { argb } });
 
 export async function buildNavetteWorkbook(ctx: Bridge.BridgeCtx, filters: NavetteFilters) {
   const { list, messages } = await Bridge.exportRows(ctx);
+  const label = (p: Bridge.Party | null | undefined) => Bridge.partyLabel(ctx.client, p);
+  const order = new Map(ctx.streams.map((s, i) => [s.id, i]));
+  const streamOf = new Map(ctx.streams.map((s) => [s.id, s]));
   const rows = list
     .filter((q) => filters.status === "all" || (filters.status === "closed" ? q.status === "CLOSED" : q.status !== "CLOSED"))
     .filter((q) => filters.assigned === "all" || (q.status !== "CLOSED" && q.assignedParty === filters.assigned))
-    .filter((q) => !filters.stream || q.streamIds.includes(filters.stream))
-    .sort((a, b) => a.ref - b.ref);
-  const label = (p: Bridge.Party | null | undefined) => Bridge.partyLabel(ctx.client, p);
-  const streamName = new Map(ctx.streams.map((s) => [s.id, s.name]));
+    .filter((q) => !filters.stream || q.streamIds.includes(filters.stream));
+  // regroupement par stream (le premier de la question dans l'ordre du client), puis par échéance, puis par numéro
+  const main = (q: (typeof rows)[number]) => [...q.streamIds].sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99))[0] ?? "";
+  rows.sort((a, b) => (order.get(main(a)) ?? 99) - (order.get(main(b)) ?? 99) || (a.dueDate ?? "9999").localeCompare(b.dueDate ?? "9999") || a.ref - b.ref);
   const byQuestion = new Map<string, typeof messages>();
   for (const m of messages) byQuestion.set(m.questionId, [...(byQuestion.get(m.questionId) ?? []), m]);
-  const outcome = (m: (typeof messages)[number]) =>
-    m.outcome === "CLOSE"
-      ? "clôture"
-      : m.outcome === "REOPEN"
-        ? `réouverture, attribuée à ${label(m.assignedAfter)}`
-        : m.assignedAfter === m.assignedBefore
-          ? `attribution conservée (${label(m.assignedAfter)})`
-          : `attribuée à ${label(m.assignedAfter)}`;
+  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+  const soon = new Date(Date.now() + 7 * 86_400_000).toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+  const colorOf = (sid: string) => STREAM_COLORS[(order.get(sid) ?? 0) % STREAM_COLORS.length];
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "WiBridge";
-  const ws = wb.addWorksheet("Fiche navette", { properties: { defaultRowHeight: 18 } });
+  const ws = wb.addWorksheet("Fiche navette", { properties: { defaultRowHeight: 16 }, views: [{ state: "frozen", ySplit: HEADER_ROW, showGridLines: false }] });
   ws.columns = NAVETTE_COLUMNS.map((c) => ({ key: c.key, width: c.width, hidden: "hidden" in c ? c.hidden : false }));
-  const last = NAVETTE_COLUMNS.length - 2; // dernière colonne visible
 
-  // en-tête de la fiche
+  // ---- en-tête de la fiche : titre, export, repères, mode d'emploi
+  const counts = new Map<string, number>();
+  for (const q of rows) counts.set(main(q), (counts.get(main(q)) ?? 0) + 1);
+  const late = rows.filter((q) => q.status !== "CLOSED" && q.dueDate && q.dueDate < today).length;
   const what = [
     filters.status === "open" ? "questions ouvertes" : filters.status === "closed" ? "questions clôturées" : "toutes les questions",
-    filters.assigned !== "all" ? `attribuées à ${label(filters.assigned)}` : "",
-    filters.stream ? `stream ${streamName.get(filters.stream) ?? ""}` : "",
+    filters.assigned !== "all" ? `à traiter par ${label(filters.assigned)}` : "",
+    filters.stream ? `stream ${streamOf.get(filters.stream)?.name ?? ""}` : "",
   ]
     .filter(Boolean)
     .join(", ");
-  ws.getCell(1, 1).value = `Fiche navette WiBridge : ${ctx.client.name}`;
-  ws.getCell(1, 1).font = { name: "Inter", size: 14, bold: true, color: { argb: PETROL } };
-  ws.getCell(2, 1).value = `Exportée le ${stampOf(new Date())} par ${ctx.user.name}. ${rows.length} question${rows.length > 1 ? "s" : ""} (${what}).`;
-  ws.getCell(3, 1).value =
-    `Répondez dans les colonnes jaunes : « Votre réponse » et « Nouvel attribué » (${ctx.client.providerName}, ${ctx.client.clientName} ou Clôturer ; ` +
-    "laissé vide, la question passe à l'autre organisation quand l'attribué répond). Importez ensuite ce fichier dans WiBridge (bouton Importer) : les autres colonnes ne sont pas lues.";
-  for (const r of [2, 3]) {
-    ws.mergeCells(r, 1, r, last);
-    ws.getCell(r, 1).font = { name: "Inter", size: 10, color: { argb: "FF334155" } };
-    ws.getCell(r, 1).alignment = { wrapText: true, vertical: "top" };
-  }
-  ws.getRow(3).height = 30;
+  const top: [string, Partial<ExcelJS.Font>, number][] = [
+    [`Fiche navette WiBridge : ${ctx.client.name}`, { size: 16, bold: true, color: { argb: PETROL } }, 26],
+    [`${rows.length} question${rows.length > 1 ? "s" : ""} (${what}), exportée${rows.length > 1 ? "s" : ""} le ${stampOf(new Date())} par ${ctx.user.name}.`, { size: 10, color: { argb: "FF475569" } }, 16],
+    [
+      `Par stream : ${[...counts].map(([sid, n]) => `${streamOf.get(sid)?.name ?? "sans stream"} ${n}`).join(", ") || "aucune question"}.${late ? ` Échéances dépassées : ${late}.` : ""} Échéance en rouge si elle est dépassée, en orange si elle tombe dans les 7 jours.`,
+      { size: 10, color: { argb: "FF475569" } },
+      16,
+    ],
+    [
+      `Pour répondre : 1. écrivez votre réponse dans la cellule jaune « Votre réponse » (Alt+Entrée sur Windows, Ctrl+Option+Entrée sur Mac pour aller à la ligne) ; 2. choisissez la suite dans « Nouvel attribué » (${ctx.client.providerName}, ${ctx.client.clientName} ou Clôturer ; laissée vide, la question est renvoyée à l'autre organisation) ; 3. renvoyez le fichier à votre contact, ou importez-le dans WiBridge (bouton Importer). Seules les cellules jaunes sont modifiables.`,
+      { size: 10, bold: true, color: { argb: "FF0F172A" } },
+      30,
+    ],
+  ];
+  top.forEach(([text, font, height], i) => {
+    const r = i + 1;
+    ws.mergeCells(r, 1, r, LAST_VISIBLE);
+    const c = ws.getCell(r, 1);
+    c.value = text;
+    c.font = { name: FONT, ...font };
+    c.alignment = { wrapText: true, vertical: "middle" };
+    ws.getRow(r).height = height;
+  });
+  ws.getCell(4, 1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: ANSWER_FILL } };
+  ws.getCell(4, 1).border = { left: { style: "medium", color: { argb: ANSWER_BORDER } } };
+  ws.getRow(5).height = 8;
 
+  // ---- titres des colonnes
   const head = ws.getRow(HEADER_ROW);
   NAVETTE_COLUMNS.forEach((c, i) => {
     const cell = head.getCell(i + 1);
     cell.value = c.header;
     const answer = c.key === "answer" || c.key === "target";
-    cell.font = { name: "Inter", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+    cell.font = { name: FONT, size: 10, bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: answer ? ANSWER_HEAD : PETROL } };
-    cell.alignment = { vertical: "middle", wrapText: true };
+    cell.alignment = { vertical: "middle", horizontal: c.key === "ref" ? "center" : "left", wrapText: true };
+    cell.border = { right: thin("FF0B5A7A") };
   });
-  head.height = 24;
+  head.height = 22;
 
-  const names = [ctx.client.providerName, ctx.client.clientName, "Clôturer"];
-  const validation = names.every((n) => !/[,"]/.test(n)) ? `"${names.join(",")}"` : null;
-  const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" });
+  // ---- questions, par stream
+  let current: string | null = null;
+  let firstData = 0;
+  let lastData = 0;
   for (const q of rows) {
+    const sid = main(q);
+    const [light, strong] = colorOf(sid);
+    if (sid !== current) {
+      current = sid;
+      const st = streamOf.get(sid);
+      const band = ws.addRow({});
+      ws.mergeCells(band.number, 1, band.number, LAST_VISIBLE);
+      const c = band.getCell(1);
+      const n = counts.get(sid) ?? 0;
+      c.value = `${st?.emoji ? `${st.emoji} ` : ""}${st?.name ?? "Sans stream"} : ${n} question${n > 1 ? "s" : ""}`;
+      c.font = { name: FONT, size: 11, bold: true, color: { argb: "FFFFFFFF" } };
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: strong } };
+      c.alignment = { vertical: "middle", indent: 1 };
+      band.height = 20;
+    }
     const ms = byQuestion.get(q.id) ?? [];
-    const thread = ms.map((m) => `${stampOf(m.createdAt)}, ${m.authorName} (${label(m.party)}), ${outcome(m)} :\n${markupToPlain(m.body).trim() || "(sans texte)"}`).join("\n\n");
+    const shown = ms.slice(-3);
+    const thread = [
+      ...(ms.length > shown.length ? [`(${ms.length - shown.length} échange${ms.length - shown.length > 1 ? "s" : ""} plus ancien${ms.length - shown.length > 1 ? "s" : ""} dans WiBridge)`] : []),
+      ...shown.map((m) => `${shortOf(m.createdAt)}, ${m.authorName} (${label(m.party)}) :\n${clip(markupToPlain(m.body).trim() || "(pièce jointe)", 500)}`),
+    ].join("\n\n");
+    const others = q.streamIds.filter((x) => x !== sid).map((x) => streamOf.get(x)?.name ?? "");
+    const body = clip(markupToPlain(q.body).trim(), 3000);
+    const closed = q.status === "CLOSED";
+    const overdue = !closed && !!q.dueDate && q.dueDate < today;
+    const near = !closed && !!q.dueDate && !overdue && q.dueDate <= soon;
     const row = ws.addRow({
       ref: q.ref,
-      subject: q.subject,
-      body: clip(markupToPlain(q.body)),
-      streams: q.streamIds.map((s) => streamName.get(s) ?? "").filter(Boolean).join(", "),
-      askedBy: `${q.askedBy.name || "Utilisateur supprimé"} (${label(q.askedByParty)})`,
-      createdAt: local(q.createdAt),
-      assigned: q.status === "CLOSED" ? "" : label(q.assignedParty),
-      status: STATUS[q.status] ?? q.status,
-      due: day(q.dueDate),
-      thread: clip(thread),
+      stream: [streamOf.get(sid)?.name ?? "", ...others.map((o) => `+ ${o}`)].join("\n"),
+      due: q.dueDate ? day(q.dueDate) : "Aucune",
+      assigned: closed ? "Clôturée" : `${label(q.assignedParty)}${q.status === "IN_PROGRESS" ? "\n(en cours)" : ""}`,
+      question: { richText: [{ text: q.subject, font: { name: FONT, size: 11, bold: true, color: { argb: closed ? "FF64748B" : "FF0F172A" } } }, ...(body ? [{ text: `\n${body}`, font: { name: FONT, size: 10, color: { argb: closed ? "FF94A3B8" : "FF334155" } } }] : [])] },
+      thread: thread || "Aucun échange.",
       answer: "",
       target: "",
+      askedBy: `${q.askedBy.name || "Utilisateur supprimé"} (${label(q.askedByParty)})\nle ${new Date(q.createdAt).toLocaleDateString("fr-FR", { timeZone: "Europe/Paris" })}`,
       id: q.id,
       version: new Date(q.lastActivityAt).toISOString(),
     });
-    const closed = q.status === "CLOSED";
-    row.font = { name: "Inter", size: 10, color: { argb: closed ? "FF94A3B8" : "FF0F172A" } };
-    row.alignment = { vertical: "top", wrapText: true };
+    if (!firstData) firstData = row.number;
+    lastData = row.number;
+    row.eachCell({ includeEmpty: true }, (cell, c) => {
+      // la question porte ses polices dans le texte enrichi (sujet en gras, texte en dessous)
+      if (c !== col("question")) cell.font = { name: FONT, size: 10, color: { argb: closed ? "FF94A3B8" : "FF334155" } };
+      cell.alignment = { vertical: "top", wrapText: true };
+      cell.border = { bottom: thin(GRID) };
+    });
+    row.getCell("ref").font = { name: FONT, size: 11, bold: true, color: { argb: closed ? "FF94A3B8" : PETROL } };
+    row.getCell("ref").alignment = { vertical: "top", horizontal: "center" };
+    const stc = row.getCell("stream");
+    stc.fill = { type: "pattern", pattern: "solid", fgColor: { argb: light } };
+    stc.font = { name: FONT, size: 10, bold: true, color: { argb: strong } };
+    const due = row.getCell("due");
+    due.numFmt = "dd/mm/yyyy";
+    if (!q.dueDate) due.font = { name: FONT, size: 10, italic: true, color: { argb: "FF94A3B8" } };
+    else if (overdue) {
+      due.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
+      due.font = { name: FONT, size: 10, bold: true, color: { argb: "FFB91C1C" } };
+    } else if (near) {
+      due.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFEDD5" } };
+      due.font = { name: FONT, size: 10, bold: true, color: { argb: "FFC2410C" } };
+    } else due.font = { name: FONT, size: 10, bold: true, color: { argb: closed ? "FF94A3B8" : "FF0F172A" } };
+    const as = row.getCell("assigned");
+    if (!closed) as.font = { name: FONT, size: 10, bold: true, color: { argb: q.assignedParty === "PROVIDER" ? "FF1D4ED8" : "FFB45309" } };
+    row.getCell("thread").font = { name: FONT, size: 9, color: { argb: "FF64748B" } };
+    // cellules à remplir : jaunes, encadrées, seules modifiables
     for (const k of ["answer", "target"] as const) {
       const cell = row.getCell(k);
       cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: closed ? CLOSED_FILL : ANSWER_FILL } };
-      cell.font = { name: "Inter", size: 10, color: { argb: "FF0F172A" } };
-      cell.border = { left: { style: "thin", color: { argb: "FFE2E8F0" } }, bottom: { style: "thin", color: { argb: "FFE2E8F0" } } };
+      cell.font = { name: FONT, size: 11, color: { argb: "FF0F172A" } };
+      cell.border = { top: thin(ANSWER_BORDER), bottom: thin(ANSWER_BORDER), left: thin(ANSWER_BORDER), right: thin(ANSWER_BORDER) };
+      cell.protection = { locked: false };
     }
-    if (!closed && q.dueDate && q.dueDate < today) row.getCell("due").font = { name: "Inter", size: 10, bold: true, color: { argb: "FFEF4444" } };
+    row.getCell("target").alignment = { vertical: "top", horizontal: "center", wrapText: true };
+    // hauteur : le texte le plus long, avec au moins quatre lignes pour écrire la réponse
+    const lines = Math.max(
+      linesOf(`${q.subject}\n${body}`, width("question")),
+      linesOf(thread, width("thread") * 1.1),
+      linesOf(row.getCell("stream").value as string, width("stream")),
+      4,
+    );
+    row.height = Math.min(400, lines * 13 + 8);
   }
-  // liste de choix de « Nouvel attribué » : une seule règle pour toute la colonne (des règles qui se chevauchent abîment le fichier)
-  const targetCol = NAVETTE_COLUMNS.findIndex((c) => c.key === "target") + 1;
-  if (validation && rows.length) {
-    const letter = ws.getColumn(targetCol).letter;
-    (ws as unknown as { dataValidations: { add: (range: string, v: ExcelJS.DataValidation) => void } }).dataValidations.add(`${letter}${HEADER_ROW + 1}:${letter}${HEADER_ROW + rows.length}`, {
+  if (!rows.length) {
+    const r = ws.addRow({});
+    ws.mergeCells(r.number, 1, r.number, LAST_VISIBLE);
+    r.getCell(1).value = "Aucune question avec les filtres choisis.";
+    r.getCell(1).font = { name: FONT, size: 11, italic: true, color: { argb: "FF64748B" } };
+  }
+
+  // liste de choix de « Nouvel attribué » : une seule règle pour la colonne (des règles qui se chevauchent abîment le fichier)
+  const names = [ctx.client.providerName, ctx.client.clientName, "Clôturer"];
+  if (firstData && names.every((n) => !/[,"]/.test(n))) {
+    const letter = ws.getColumn(col("target")).letter;
+    (ws as unknown as { dataValidations: { add: (range: string, v: ExcelJS.DataValidation) => void } }).dataValidations.add(`${letter}${firstData}:${letter}${lastData}`, {
       type: "list",
       allowBlank: true,
-      formulae: [validation],
+      formulae: [`"${names.join(",")}"`],
       showErrorMessage: true,
       errorTitle: "Nouvel attribué",
       error: `Choisissez ${names.join(", ")} ou laissez vide.`,
+      showInputMessage: true,
+      promptTitle: "Nouvel attribué",
+      prompt: `${names.join(", ")}. Laissé vide : la question est renvoyée à l'autre organisation.`,
     });
   }
-  ws.getColumn("createdAt").numFmt = "dd/mm/yyyy";
-  ws.getColumn("due").numFmt = "dd/mm/yyyy";
-  ws.views = [{ state: "frozen", xSplit: 2, ySplit: HEADER_ROW }];
-  // impression : paysage, toute la largeur sur une page, en-tête du tableau répété
-  ws.pageSetup = { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: `${HEADER_ROW}:${HEADER_ROW}` };
-  ws.autoFilter = { from: { row: HEADER_ROW, column: 1 }, to: { row: HEADER_ROW, column: last } };
+  // impression : paysage, largeur sur une page, titres des colonnes répétés
+  ws.pageSetup = { paperSize: 9, orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: `${HEADER_ROW}:${HEADER_ROW}`, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } };
+  ws.headerFooter = { oddFooter: `&L${ctx.client.name} : fiche navette WiBridge&RPage &P sur &N` };
+  // feuille protégée sans mot de passe : seules les cellules de réponse se modifient ; lignes et colonnes restent ajustables
+  await ws.protect("", { selectLockedCells: true, selectUnlockedCells: true, formatRows: true, formatColumns: true, formatCells: false, sort: false, autoFilter: false });
 
   const buffer = Buffer.from(await wb.xlsx.writeBuffer());
   const stamp = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Paris" }).replace(/-/g, "");
@@ -188,12 +285,13 @@ export async function readNavette(buffer: Buffer, ctx: Bridge.BridgeCtx): Promis
     throw new HttpError(400, "Fichier illisible : importez la fiche navette exportée par WiBridge, au format Excel (.xlsx).");
   }
   const wanted = { ref: norm("Réf."), id: "id", version: "version", answer: norm("Votre réponse"), target: norm("Nouvel attribué") };
+  const refAliases = new Set([norm("Réf."), norm("N°"), "numero", "no"]);
   for (const ws of wb.worksheets) {
     for (let r = 1; r <= Math.min(ws.rowCount, 20); r++) {
       const cols: Partial<Record<keyof typeof wanted, number>> = {};
       ws.getRow(r).eachCell((cell, c) => {
         const t = norm(cellText(cell));
-        for (const [k, v] of Object.entries(wanted) as [keyof typeof wanted, string][]) if (t === v && cols[k] === undefined) cols[k] = c;
+        for (const [k, v] of Object.entries(wanted) as [keyof typeof wanted, string][]) if ((t === v || (k === "ref" && refAliases.has(t))) && cols[k] === undefined) cols[k] = c;
       });
       if (cols.answer === undefined || cols.target === undefined) continue;
       const rows: Bridge.NavetteRow[] = [];

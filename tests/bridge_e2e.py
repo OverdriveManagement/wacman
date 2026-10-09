@@ -399,9 +399,9 @@ with sync_playwright() as p:
     dl.value.save_as(exported)
     book = openpyxl.load_workbook(exported)
     sh = book["Fiche navette"]
-    h = {c.value: c.column for c in sh[5] if c.value}
-    for row in sh.iter_rows(min_row=6):
-        if row[h["Réf."] - 1].value == q_nav["ref"]:
+    h = {c.value: c.column for c in sh[6] if c.value}
+    for row in sh.iter_rows(min_row=7):
+        if row[h["N°"] - 1].value == q_nav["ref"]:
             sh.cell(row[0].row, h["Votre réponse"]).value = "Plan transmis par e-mail le 09/10."
     filled = os.path.join(OUT, f"navette_{RUN}.xlsx")
     book.save(filled)

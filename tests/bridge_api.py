@@ -505,18 +505,24 @@ try:
     wb = openpyxl.load_workbook(io.BytesIO(x))
     check("fiche navette : un seul onglet", wb.sheetnames == ["Fiche navette"], str(wb.sheetnames))
     ws = wb["Fiche navette"]
-    hdr = {c.value: c.column for c in ws[5] if c.value}
-    check("fiche navette : colonnes", all(k in hdr for k in ["Réf.", "Sujet", "Question", "Échanges", "Votre réponse", "Nouvel attribué", "ID", "Version"]), str(hdr))
+    hdr = {c.value: c.column for c in ws[6] if c.value}
+    check("fiche navette : colonnes", all(k in hdr for k in ["N°", "Stream", "Échéance", "À traiter par", "Question", "Derniers échanges", "Votre réponse", "Nouvel attribué", "ID", "Version"]), str(hdr))
+    check("fiche navette : réponse juste après la question et les échanges", hdr["Votre réponse"] == hdr["Derniers échanges"] + 1 == hdr["Question"] + 2, str(hdr))
     check("fiche navette : identifiants cachés", ws.column_dimensions[openpyxl.utils.get_column_letter(hdr["ID"])].hidden)
-    subjects = [r[hdr["Sujet"] - 1].value for r in ws.iter_rows(min_row=6)]
-    check("fiche navette : questions visibles", any(s and s.startswith("Liste des ATM") for s in subjects), str(subjects)[:200])
+    data_rows = [r for r in ws.iter_rows(min_row=7) if isinstance(r[hdr["N°"] - 1].value, int)]
+    subjects = [str(r[hdr["Question"] - 1].value or "") for r in data_rows]
+    check("fiche navette : questions visibles, sujet en tête de la question", any(s.startswith("Liste des ATM") for s in subjects), str(subjects)[:200])
+    bands = [str(r[0].value) for r in ws.iter_rows(min_row=7) if not isinstance(r[0].value, int) and r[0].value]
+    check("fiche navette : questions regroupées par stream", any(b.startswith("🚚 Déploiement : ") for b in bands), str(bands)[:200])
+    cell = data_rows[0][hdr["Votre réponse"] - 1]
+    check("fiche navette : feuille protégée, cellules de réponse modifiables", ws.protection.sheet and cell.protection.locked is False and data_rows[0][hdr["Question"] - 1].protection.locked is not False)
     st, x2 = sec.req("GET", f"{base}/export.xlsx?status=all")
     w2 = openpyxl.load_workbook(io.BytesIO(x2))["Fiche navette"]
-    s2 = [r[1].value for r in w2.iter_rows(min_row=6)]
-    check("fiche navette : limitée aux droits", all("ATM" not in (s or "") for s in s2), str(s2)[:200])
+    s2 = [str(r[hdr["Question"] - 1].value or "") for r in w2.iter_rows(min_row=7) if isinstance(r[0].value, int)]
+    check("fiche navette : limitée aux droits", all("ATM" not in s for s in s2), str(s2)[:200])
     st, x3 = lp.req("GET", f"{base}/export.xlsx?status=open&assigned=CLIENT")
     w3 = openpyxl.load_workbook(io.BytesIO(x3))["Fiche navette"]
-    a3 = {r[hdr["Attribuée à"] - 1].value for r in w3.iter_rows(min_row=6)}
+    a3 = {str(r[hdr["À traiter par"] - 1].value).split("\n")[0] for r in w3.iter_rows(min_row=7) if isinstance(r[0].value, int)}
     check("fiche navette : filtre d'attribution", a3 == {"La Poste"}, str(a3))
 
     def navette(session, query, fills):
@@ -524,9 +530,9 @@ try:
         st, data = session.req("GET", f"{base}/export.xlsx?{query}")
         book = openpyxl.load_workbook(io.BytesIO(data))
         sh = book["Fiche navette"]
-        h = {c.value: c.column for c in sh[5] if c.value}
-        for row in sh.iter_rows(min_row=6):
-            ref = row[h["Réf."] - 1].value
+        h = {c.value: c.column for c in sh[6] if c.value}
+        for row in sh.iter_rows(min_row=7):
+            ref = row[h["N°"] - 1].value
             if ref in fills:
                 sh.cell(row[0].row, h["Votre réponse"]).value = fills[ref][0]
                 sh.cell(row[0].row, h["Nouvel attribué"]).value = fills[ref][1]

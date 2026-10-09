@@ -6,7 +6,7 @@ WiBridge est une interface autonome, publiée sur Vercel à l'adresse https://wi
 
 Ce document décrit ce que fait l'application. Il est mis à jour à chaque évolution ; le journal en fin de document trace les demandes, prompt par prompt. L'architecture commune est décrite dans `ARCHITECTURE.md` (partie WiBridge) et l'hébergement dans `EXPLOITATION.md`.
 
-Version courante : **V1.5** (9 octobre 2026).
+Version courante : **V1.6** (9 octobre 2026).
 
 ---
 
@@ -222,12 +222,15 @@ Un client archivé ou dont la règle « E-mails de notification » est désactiv
 La fiche navette permet de répondre aux questions dans Excel, hors de WiBridge, puis de reverser les réponses.
 
 ### 10.1 Export
-Bouton « Fiche navette » : fichier `WiBridge_<client>_fiche_navette_<date>.xlsx`, avec les questions affichées (filtres de statut, d'attribution et de stream de l'écran) et visibles par la personne.
-- **Un seul onglet**, « Fiche navette » : en tête, le client, la date et l'auteur de l'export, et le mode d'emploi ; puis une question par ligne.
-- Colonnes : Réf., Sujet, Question, Streams, Posée par (avec l'organisation), Posée le, Attribuée à, Statut, Échéance (en rouge si dépassée), Échanges (tous les messages, avec la date, l'auteur, l'organisation et l'issue).
-- **Deux colonnes à remplir**, en jaune : « Votre réponse » et « Nouvel attribué » (liste de choix : Wifirst, La Poste ou Clôturer).
+Bouton « Fiche navette » : fichier `WiBridge_<client>_fiche_navette_<date>.xlsx`, avec les questions affichées (filtres de statut, d'attribution et de stream de l'écran) et visibles par la personne. Le fichier est fait pour être envoyé tel quel à l'organisation qui doit répondre : elle y voit toutes les questions et répond dans le même onglet, sans compte WiBridge.
+- **Un seul onglet**, « Fiche navette ». En tête : le client, le nombre de questions, les filtres, la date et l'auteur de l'export ; le nombre de questions par stream et le nombre d'échéances dépassées ; le mode d'emploi en trois étapes, sur fond jaune.
+- **Questions regroupées par stream**, dans l'ordre des streams du client : chaque groupe s'ouvre sur un bandeau de couleur (picto, nom du stream, nombre de questions). Une question à plusieurs streams est rangée sous son premier stream et la cellule « Stream » cite les autres. Dans un groupe, les questions sont triées par échéance (les plus proches d'abord, celles sans échéance à la fin), puis par numéro.
+- Colonnes, dans l'ordre de lecture : N°, Stream (couleur du stream), Échéance, À traiter par (organisation attributaire, « en cours » le cas échéant, ou « Clôturée »), Question (sujet en gras puis texte), Derniers échanges (les trois derniers messages avec la date, l'auteur, l'organisation et l'issue, et le nombre d'échanges plus anciens), **Votre réponse**, **Nouvel attribué**, Posée par (avec l'organisation et la date).
+- **Échéances en évidence** : en rouge si elle est dépassée, en orange si elle tombe dans les 7 jours, « Aucune » en gris sinon. La légende figure en tête.
+- **Cellules de réponse** : « Votre réponse » et « Nouvel attribué » sont des cellules jaunes encadrées, juste à droite de la question et des échanges ; « Nouvel attribué » propose une liste de choix (Wifirst, La Poste ou Clôturer). Les lignes sont assez hautes pour écrire une réponse de plusieurs lignes.
+- **Feuille protégée, sans mot de passe** : seules les cellules jaunes sont modifiables, ce qui évite d'abîmer le fichier avant son retour ; largeur des colonnes et hauteur des lignes restent réglables.
 - Deux colonnes cachées, « ID » et « Version », identifient la question et sa dernière activité au moment de l'export.
-- Tableau filtrable, en-tête et deux premières colonnes figés, impression en paysage sur la largeur d'une page.
+- En-tête du tableau figé ; impression en paysage sur la largeur d'une page, en-tête répété sur chaque page, pied de page avec le client et la pagination.
 
 ### 10.2 Import
 Bouton « Importer », puis choix du fichier rempli :
@@ -247,7 +250,7 @@ Règles appliquées à chaque ligne, avec les droits de la personne qui importe,
 - Chaque réponse importée porte la mention « fiche navette » dans les échanges, et l'historique l'indique.
 - Lignes ignorées, avec leur raison : question introuvable ou supprimée, réponse que la personne n'a pas le droit de faire, nouvel attribué non reconnu, question clôturée sans nouvel attribué, question en double dans le fichier, réponse déjà présente dans les échanges (un même fichier importé deux fois n'ajoute rien).
 - Avertissement, sans blocage : la question a changé depuis l'export (nouvelle réponse ou modification).
-- Le texte de la colonne « Nouvel attribué » est reconnu sans tenir compte des majuscules ni des accents ; le sigle du client est accepté. Une ligne se retrouve par son identifiant caché, à défaut par son numéro.
+- Le texte de la colonne « Nouvel attribué » est reconnu sans tenir compte des majuscules ni des accents ; le sigle du client est accepté. Une ligne se retrouve par son identifiant caché, à défaut par son numéro ; les bandeaux de stream sont ignorés. Les fiches exportées avant la V1.6 restent importables.
 - Limites : fichier Excel (.xlsx) de 5 Mo et 1 000 lignes au plus, 500 lignes appliquées par import.
 
 ## 11. Administration (super-administrateur)
@@ -295,3 +298,4 @@ Menu utilisateur, « Administration » :
 | 09/10/2026 | Faire évoluer l'export Excel en fiche navette : un seul onglet listant les questions avec un espace pour que l'attribué réponde sur chaque question (réponse et nouvel attribué), puis réimport du fichier pour que les réponses soient prises en compte | V1.3 : export « Fiche navette » (un onglet, colonnes « Votre réponse » et « Nouvel attribué » avec liste de choix, échanges en clair, identifiants cachés, filtres de l'écran) ; bouton « Importer » avec aperçu ligne par ligne, puis application avec les droits de l'écran ; réouverture d'une question clôturée, clôture et changement d'attribution sans réponse ; mention « fiche navette » sur les réponses importées et dans l'historique ; second import du même fichier sans effet (migration `0008_bridge_message_source`) (7, 10) |
 | 09/10/2026 | Dans une question dépliée, tous les éléments ne sont pas modifiables (par exemple l'échéance) : compléter | V1.4 : en tête de la question dépliée, sujet, statut, attribution, échéance et streams modifiables selon les droits, avec « Ajouter une échéance » quand elle est vide ; le texte et les pièces jointes suivent (7) |
 | 09/10/2026 | Quand on déplie une question, replier les autres | V1.5 : une seule question dépliée à la fois ; la question cliquée reste à sa place à l'écran quand celle du dessus se replie ; brouillons de réponse conservés (7) |
+| 09/10/2026 | La fiche navette n'est pas dans un bon format : un fichier que l'organisation qui le reçoit peut modifier directement, pour y voir toutes les questions et saisir sa réponse dans un seul onglet ; format plus agréable, qui distingue bien les streams concernés, les échéances de réponse et la cellule où répondre | V1.6 : fiche navette refaite ; en tête, compte par stream, échéances dépassées et mode d'emploi en trois étapes ; questions regroupées par stream sous des bandeaux de couleur, triées par échéance ; échéance en rouge si dépassée, en orange à moins de 7 jours ; cellules de réponse jaunes encadrées juste après la question et les derniers échanges ; feuille protégée sans mot de passe où seules les cellules jaunes se modifient ; import inchangé, anciennes fiches toujours acceptées (10) |
